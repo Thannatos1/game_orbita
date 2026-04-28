@@ -41,6 +41,10 @@
   let _runDurationS = 0;
   let _runMaxCombo = 0;
 
+  // Estado pro menu inicial
+  let _menuStars = null;          // gerado uma vez, persiste
+  let _menuDayStreak = 1;
+
   // ---------- ANTI-CHEAT ----------
   // 3 camadas: (1) assinatura no save vs localStorage editor,
   // (2) score esperado em runtime vs console "score=9999",
@@ -411,6 +415,30 @@
     } catch(e) {}
   }, 1000);
 
+  // Carrega o streak pra exibir no menu (atualizado em die())
+  try {
+    _menuDayStreak = parseInt(localStorage.getItem('orbita_day_streak') || '1', 10) || 1;
+  } catch(e) {}
+
+  // Gera campo de estrelas pro menu (uma vez por sessao)
+  function _genMenuStars(){
+    const stars = [];
+    const count = 80;
+    for (let i = 0; i < count; i++) {
+      stars.push({
+        x: Math.random(),
+        y: Math.random(),
+        size: 0.5 + Math.random() * 1.6,
+        baseAlpha: 0.15 + Math.random() * 0.45,
+        twinkleSpeed: 0.6 + Math.random() * 2.4,
+        phase: Math.random() * Math.PI * 2,
+        hue: Math.random() < 0.85 ? '#ffffff' : (Math.random() < 0.5 ? '#a0c8ff' : '#ffd0a0')
+      });
+    }
+    return stars;
+  }
+  _menuStars = _genMenuStars();
+
   // Brilho leve nos meteoros pra garantir contraste mesmo em
   // momentos de flash branco (recorde, jackpot).
   if (typeof window.drawAsteroid === 'function') {
@@ -702,76 +730,271 @@
   window.orbitaMenuShell_drawMenuUI = function(){
     if (typeof menuBtnAreas !== 'undefined') menuBtnAreas = [];
 
-    // BG escuro estrelado ja vem do render principal. So overlay leve.
+    const t = (typeof menuT === 'number') ? menuT : 0;
+
+    // Tamanhos responsivos
+    const titleSize    = Math.max(40, Math.min(72, W * 0.18));
+    const subtitleSize = Math.max(11, Math.min(14, W * 0.036));
+    const labelSize    = Math.max(10, Math.min(12, W * 0.032));
+    const recordSize   = Math.max(34, Math.min(52, W * 0.13));
+    const tapSize      = Math.max(15, Math.min(20, W * 0.054));
+    const streakSize   = Math.max(11, Math.min(13, W * 0.034));
+
+    // ---------- 1. Campo de estrelas com twinkle ----------
+    if (_menuStars) {
+      for (let i = 0; i < _menuStars.length; i++) {
+        const s = _menuStars[i];
+        const tw = 0.5 + Math.sin(t * s.twinkleSpeed + s.phase) * 0.5;
+        X.globalAlpha = s.baseAlpha * (0.4 + tw * 0.6);
+        X.fillStyle = s.hue;
+        X.beginPath();
+        X.arc(s.x * W, s.y * H, s.size, 0, Math.PI * 2);
+        X.fill();
+      }
+      X.globalAlpha = 1;
+    }
+
+    // ---------- 2. Demo orbit animado (acima do titulo) ----------
+    const demoCx = W / 2;
+    const demoCy = H * 0.18;
+    const demoR = Math.max(30, Math.min(48, W * 0.11));
+    const demoAng = t * 2.6;
+
+    // Glow ambiente atras do nó
+    const glowGrad = X.createRadialGradient(demoCx, demoCy, 0, demoCx, demoCy, demoR * 2.4);
+    glowGrad.addColorStop(0, 'rgba(0,245,212,0.18)');
+    glowGrad.addColorStop(1, 'rgba(0,245,212,0)');
+    X.fillStyle = glowGrad;
+    X.beginPath();
+    X.arc(demoCx, demoCy, demoR * 2.4, 0, Math.PI * 2);
+    X.fill();
+
+    // Anel orbital (linha tracejada sutil)
+    X.save();
+    X.globalAlpha = 0.18;
+    X.strokeStyle = '#ffffff';
+    X.lineWidth = 1;
+    X.setLineDash([3, 4]);
+    X.beginPath();
+    X.arc(demoCx, demoCy, demoR, 0, Math.PI * 2);
+    X.stroke();
+    X.setLineDash([]);
+    X.restore();
+
+    // Nó central
+    X.save();
+    X.shadowColor = '#00f5d4';
+    X.shadowBlur = 14;
+    const nodeGrad = X.createRadialGradient(demoCx-1, demoCy-1, 0, demoCx, demoCy, 8);
+    nodeGrad.addColorStop(0, '#80ffff');
+    nodeGrad.addColorStop(1, '#00b89a');
+    X.fillStyle = nodeGrad;
+    X.beginPath();
+    X.arc(demoCx, demoCy, 7, 0, Math.PI * 2);
+    X.fill();
+    X.restore();
+
+    // Trail orbitante
+    for (let i = 0; i < 10; i++) {
+      const ang = demoAng - i * 0.13;
+      const al = (10 - i) / 10 * 0.55;
+      X.globalAlpha = al;
+      X.fillStyle = '#00f5d4';
+      X.beginPath();
+      X.arc(
+        demoCx + Math.cos(ang) * demoR,
+        demoCy + Math.sin(ang) * demoR,
+        4 - i * 0.3, 0, Math.PI * 2
+      );
+      X.fill();
+    }
+    X.globalAlpha = 1;
+
+    // Bola
+    const bx = demoCx + Math.cos(demoAng) * demoR;
+    const by = demoCy + Math.sin(demoAng) * demoR;
+    X.save();
+    X.shadowColor = '#ffffff';
+    X.shadowBlur = 12;
+    X.fillStyle = '#ffffff';
+    X.beginPath();
+    X.arc(bx, by, 5.5, 0, Math.PI * 2);
+    X.fill();
+    X.restore();
+
+    // ---------- 3. TITULO "ÓRBITA" com gradiente + letter-spacing ----------
     X.textAlign = 'center';
     X.textBaseline = 'middle';
+    const titleY = H * 0.36;
+    const titlePulse = 1 + Math.sin(t * 2.2) * 0.025;
 
-    // Tamanhos responsivos baseados na largura
-    const titleSize = Math.max(36, Math.min(64, W * 0.16));
-    const subtitleSize = Math.max(11, Math.min(13, W * 0.034));
-    const labelSize = Math.max(10, Math.min(12, W * 0.032));
-    const recordSize = Math.max(36, Math.min(56, W * 0.14));
-    const tapSize = Math.max(16, Math.min(22, W * 0.058));
-
-    // Titulo grande pulsante
-    const titlePulse = 1 + Math.sin((typeof menuT==='number'?menuT:0) * 2.4) * 0.04;
     X.save();
-    X.translate(W/2, H*0.32);
+    X.translate(W/2, titleY);
     X.scale(titlePulse, titlePulse);
-    X.shadowColor = '#b0b0ff';
-    X.shadowBlur = 32;
-    X.fillStyle = '#ffffff';
+
+    // Gradiente vertical no titulo
+    const titleGrad = X.createLinearGradient(0, -titleSize/2, 0, titleSize/2);
+    titleGrad.addColorStop(0, '#ffffff');
+    titleGrad.addColorStop(0.5, '#80f5e8');
+    titleGrad.addColorStop(1, '#00f5d4');
+
+    // Sombra de glow ciano
+    X.shadowColor = '#00f5d4';
+    X.shadowBlur = 24;
+    X.fillStyle = titleGrad;
     X.font = 'bold ' + titleSize + 'px -apple-system, system-ui, sans-serif';
-    X.fillText('ÓRBITA', 0, 0);
+
+    // Letter-spacing manual: desenha letra por letra
+    const letters = 'ÓRBITA'.split('');
+    const spacing = titleSize * 0.08;  // pequeno espaco extra
+    let totalW = 0;
+    const widths = letters.map(l => X.measureText(l).width);
+    totalW = widths.reduce((a, b) => a + b, 0) + spacing * (letters.length - 1);
+    let cx = -totalW / 2;
+    for (let i = 0; i < letters.length; i++) {
+      X.fillText(letters[i], cx + widths[i]/2, 0);
+      cx += widths[i] + spacing;
+    }
     X.shadowBlur = 0;
     X.restore();
 
-    // Subtitulo
-    X.fillStyle = 'rgba(255,255,255,0.45)';
-    X.font = subtitleSize + 'px -apple-system, system-ui, sans-serif';
-    X.fillText('Um toque. Solte. Nao erre.', W/2, H*0.32 + titleSize*0.75);
+    // Linha decorativa abaixo do titulo
+    const lineY = titleY + titleSize * 0.55;
+    const lineW = Math.min(W * 0.5, 220);
+    X.save();
+    X.globalAlpha = 0.35;
+    const lineGrad = X.createLinearGradient(W/2 - lineW/2, lineY, W/2 + lineW/2, lineY);
+    lineGrad.addColorStop(0, 'rgba(0,245,212,0)');
+    lineGrad.addColorStop(0.5, 'rgba(0,245,212,1)');
+    lineGrad.addColorStop(1, 'rgba(0,245,212,0)');
+    X.strokeStyle = lineGrad;
+    X.lineWidth = 1;
+    X.beginPath();
+    X.moveTo(W/2 - lineW/2, lineY);
+    X.lineTo(W/2 + lineW/2, lineY);
+    X.stroke();
+    X.restore();
 
-    // Recorde grande
+    // Subtitulo
+    X.fillStyle = 'rgba(255,255,255,0.5)';
+    X.font = subtitleSize + 'px -apple-system, system-ui, sans-serif';
+    X.fillText('Um toque. Solte. Não erre.', W/2, lineY + subtitleSize * 1.2 + 4);
+
+    // ---------- 4. Card de RECORDE com medalha ----------
     const bestVal = (typeof best === 'number') ? best : 0;
-    X.fillStyle = 'rgba(255,255,255,0.55)';
-    X.font = labelSize + 'px -apple-system, system-ui, sans-serif';
-    X.fillText('RECORDE', W/2, H*0.49);
-    X.fillStyle = '#ffd32a';
-    X.shadowColor = '#ffaa00';
-    X.shadowBlur = 12;
-    X.font = 'bold ' + recordSize + 'px -apple-system, system-ui, sans-serif';
-    X.fillText(String(bestVal), W/2, H*0.555);
+    const medal = _getFlappyMedal(bestVal);
+    const cardW = Math.min(W * 0.78, 320);
+    const cardH = Math.max(80, recordSize + 40);
+    const cardX = (W - cardW) / 2;
+    const cardY = H * 0.50;
+
+    // Card BG
+    X.fillStyle = 'rgba(0,0,0,0.55)';
+    if (typeof roundRect === 'function') {
+      roundRect(cardX, cardY, cardW, cardH, 12); X.fill();
+    } else {
+      X.fillRect(cardX, cardY, cardW, cardH);
+    }
+    // Borda dourada se tem medalha, branca discreta se nao
+    X.strokeStyle = medal ? medal.color : 'rgba(255,255,255,0.18)';
+    X.lineWidth = medal ? 1.8 : 1.2;
+    if (medal) { X.shadowColor = medal.glow; X.shadowBlur = 10; }
+    if (typeof roundRect === 'function') {
+      roundRect(cardX, cardY, cardW, cardH, 12); X.stroke();
+    } else {
+      X.strokeRect(cardX, cardY, cardW, cardH);
+    }
     X.shadowBlur = 0;
 
-    // "TOQUE PARA JOGAR" piscando
-    const blink = 0.55 + Math.sin((typeof menuT==='number'?menuT:0) * 4) * 0.35;
+    // Conteudo do card: medalha (esq) + numero (centro/dir)
+    const innerY = cardY + cardH / 2;
+    if (medal) {
+      X.font = (cardH * 0.55) + 'px sans-serif';
+      X.textAlign = 'left';
+      X.textBaseline = 'middle';
+      X.fillText(medal.emoji, cardX + 18, innerY);
+
+      // RECORDE label + value (deslocado pra direita pra dar espaco pra medalha)
+      const textCx = cardX + cardW * 0.62;
+      X.textAlign = 'center';
+      X.fillStyle = 'rgba(255,255,255,0.55)';
+      X.font = labelSize + 'px -apple-system, system-ui, sans-serif';
+      X.fillText('RECORDE', textCx, innerY - recordSize * 0.45);
+      X.fillStyle = '#ffd32a';
+      X.shadowColor = '#ffaa00';
+      X.shadowBlur = 12;
+      X.font = 'bold ' + recordSize + 'px -apple-system, system-ui, sans-serif';
+      X.fillText(String(bestVal), textCx, innerY + recordSize * 0.18);
+      X.shadowBlur = 0;
+    } else {
+      // Sem medalha: layout centralizado
+      X.textAlign = 'center';
+      X.textBaseline = 'middle';
+      X.fillStyle = 'rgba(255,255,255,0.55)';
+      X.font = labelSize + 'px -apple-system, system-ui, sans-serif';
+      X.fillText('RECORDE', W/2, innerY - recordSize * 0.45);
+      X.fillStyle = '#ffd32a';
+      X.shadowColor = '#ffaa00';
+      X.shadowBlur = 12;
+      X.font = 'bold ' + recordSize + 'px -apple-system, system-ui, sans-serif';
+      X.fillText(String(bestVal), W/2, innerY + recordSize * 0.18);
+      X.shadowBlur = 0;
+    }
+
+    // ---------- 5. Streak badge (apenas se >= 2) ----------
+    let cursorY = cardY + cardH + 26;
+    if (_menuDayStreak >= 2) {
+      X.textAlign = 'center';
+      X.textBaseline = 'middle';
+      X.fillStyle = 'rgba(255,165,0,0.9)';
+      X.shadowColor = '#ff8800';
+      X.shadowBlur = 8;
+      X.font = 'bold ' + streakSize + 'px -apple-system, system-ui, sans-serif';
+      X.fillText('🔥 ' + _menuDayStreak + ' DIAS SEGUIDOS', W/2, cursorY);
+      X.shadowBlur = 0;
+      cursorY += streakSize + 18;
+    }
+
+    // ---------- 6. CTA "TOQUE PARA JOGAR" ----------
+    const blink = 0.55 + Math.sin(t * 3.5) * 0.35;
+    const ctaY = H * 0.78;
+
+    // Brackets pulsantes ao lado
+    X.save();
     X.globalAlpha = blink;
     X.fillStyle = '#00f5d4';
     X.shadowColor = '#00f5d4';
     X.shadowBlur = 14;
     X.font = 'bold ' + tapSize + 'px -apple-system, system-ui, sans-serif';
-    X.fillText('▶  TOQUE PARA JOGAR  ◀', W/2, H*0.72);
+    X.textAlign = 'center';
+    X.textBaseline = 'middle';
+    X.fillText('▶   TOQUE PARA JOGAR   ◀', W/2, ctaY);
     X.shadowBlur = 0;
+    X.restore();
+
+    // Hint sutil de "toque em qualquer lugar"
+    X.globalAlpha = 0.35;
+    X.fillStyle = '#ffffff';
+    X.font = (subtitleSize - 1) + 'px -apple-system, system-ui, sans-serif';
+    X.fillText('toque em qualquer lugar', W/2, ctaY + tapSize + 8);
     X.globalAlpha = 1;
 
-    // Mute (canto superior direito) - mantido para acessibilidade
+    // ---------- Mute btn (canto superior direito) ----------
     X.globalAlpha = 0.55;
     X.fillStyle = '#fff';
     X.font = '20px sans-serif';
     X.textAlign = 'right';
-    X.fillText((typeof muted!=='undefined' && muted) ? '🔇' : '🔊', W - 16, 26);
+    X.fillText((typeof muted !== 'undefined' && muted) ? '🔇' : '🔊', W - 16, 26);
     X.globalAlpha = 1;
 
-    // Botao gigante invisivel cobrindo a tela: tap em qualquer lugar joga.
+    // ---------- Hit areas ----------
     if (typeof menuBtnAreas !== 'undefined') {
-      // Mute area no canto
       menuBtnAreas.push({
         x: W - 50, y: 4, w: 50, h: 44,
         action: function(){
           if (typeof toggleMute === 'function') toggleMute();
         }
       });
-      // Tap-anywhere = play
       menuBtnAreas.push({
         x: 0, y: 50, w: W, h: H - 50,
         action: function(){
