@@ -7,7 +7,8 @@
     highestPhase: 1,
     progressSentScore: 0,
     progressUpdates: 0,
-    lastReason: null
+    lastReason: null,
+    retryPending: false
   };
 
   function resetRankingHardeningMetrics(){
@@ -19,6 +20,7 @@
     RH.progressSentScore = 0;
     RH.progressUpdates = 0;
     RH.lastReason = null;
+    RH.retryPending = false;
   }
 
   function currentPhaseSafe(){
@@ -57,7 +59,8 @@
       const livePhase = Math.max(RH.highestPhase, currentPhaseSafe());
       const liveCombo = Math.max(RH.maxCombo, Number(typeof maxCombo !== 'undefined' ? maxCombo : 0) || 0);
 
-      if (!force && reason === RH.lastReason && liveScore <= RH.progressSentScore) {
+      const mustRetry = RH.retryPending === true;
+      if (!force && !mustRetry && reason === RH.lastReason && liveScore <= RH.progressSentScore) {
         return false;
       }
 
@@ -76,6 +79,7 @@
       RH.progressSentScore = Math.max(RH.progressSentScore, liveScore);
       RH.progressUpdates += 1;
       RH.lastReason = reason || null;
+      RH.retryPending = false;
 
       try {
         if (activeRunSession) {
@@ -98,7 +102,8 @@
 
       return !!data?.ok;
     } catch (e) {
-      console.warn('[Orbita] update_run_progress failed', e);
+      RH.retryPending = true;
+      console.warn('[Orbita] update_run_progress failed (retry queued)', e);
       return false;
     }
   }

@@ -792,24 +792,36 @@
   };
 
   const _origCollectPowerup = typeof collectPowerup === 'function' ? collectPowerup : null;
-  collectPowerup = function(p){
-    fairnessState.capturesSincePowerup = 0;
-    fairnessState.firstPowerupGranted = true;
-    return _origCollectPowerup.apply(this, arguments);
-  };
+  if (_origCollectPowerup) {
+    collectPowerup = function(p){
+      fairnessState.capturesSincePowerup = 0;
+      fairnessState.firstPowerupGranted = true;
+      return _origCollectPowerup.apply(this, arguments);
+    };
+  } else {
+    console.warn('[Orbita] fairness_rng_patch: collectPowerup missing at load');
+  }
 
   const _origCapture = typeof capture === 'function' ? capture : null;
-  capture = function(nodeIdx){
-    const result = _origCapture.apply(this, arguments);
-    fairnessState.capturesSincePowerup += 1;
-    return result;
-  };
+  if (_origCapture) {
+    capture = function(nodeIdx){
+      const result = _origCapture.apply(this, arguments);
+      fairnessState.capturesSincePowerup += 1;
+      return result;
+    };
+  } else {
+    console.warn('[Orbita] fairness_rng_patch: capture missing at load');
+  }
 
   const _origReset = typeof reset === 'function' ? reset : null;
-  reset = function(){
-    resetFairnessState();
-    return _origReset.apply(this, arguments);
-  };
+  if (_origReset) {
+    reset = function(){
+      resetFairnessState();
+      return _origReset.apply(this, arguments);
+    };
+  } else {
+    console.warn('[Orbita] fairness_rng_patch: reset missing at load');
+  }
 
   console.log('[Orbita] fairness_rng_patch loaded');
 })();

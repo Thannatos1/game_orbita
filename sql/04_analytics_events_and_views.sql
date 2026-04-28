@@ -44,6 +44,13 @@ declare
   v_uid uuid;
   v_count integer := 0;
   v_item jsonb;
+  v_batch_cap constant integer := 25;
+  v_per_minute_cap constant integer := 120;
+  v_payload_bytes_cap constant integer := 4096;
+  v_session_id text;
+  v_first_session text := null;
+  v_recent integer;
+  v_event_name text;
 begin
   v_uid := auth.uid();
 
@@ -51,8 +58,43 @@ begin
     raise exception 'invalid analytics payload';
   end if;
 
+  if jsonb_array_length(p_events) > v_batch_cap then
+    raise exception 'analytics batch too large' using errcode = '22023';
+  end if;
+
+  if v_uid is not null then
+    select count(*) into v_recent
+    from public.analytics_events
+    where user_id = v_uid
+      and created_at > now() - interval '1 minute';
+    if v_recent >= v_per_minute_cap then
+      raise exception 'analytics rate limit exceeded' using errcode = '22023';
+    end if;
+  else
+    v_first_session := coalesce(p_events->0->>'session_id', 'unknown');
+    select count(*) into v_recent
+    from public.analytics_events
+    where user_id is null
+      and session_id = v_first_session
+      and created_at > now() - interval '1 minute';
+    if v_recent >= v_per_minute_cap then
+      raise exception 'analytics rate limit exceeded' using errcode = '22023';
+    end if;
+  end if;
+
   for v_item in select value from jsonb_array_elements(p_events) loop
-    exit when v_count >= 100;
+    exit when v_count >= v_batch_cap;
+
+    if octet_length(coalesce(v_item::text, '')) > v_payload_bytes_cap then
+      continue;
+    end if;
+
+    v_session_id := coalesce(v_item->>'session_id', 'unknown');
+    v_event_name := left(coalesce(v_item->>'event_name', 'unknown'), 64);
+
+    if v_event_name !~ '^[a-z0-9_]+$' then
+      continue;
+    end if;
 
     insert into public.analytics_events (
       session_id,
@@ -61,9 +103,9 @@ begin
       client_ts,
       payload
     ) values (
-      coalesce(v_item->>'session_id', 'unknown'),
+      v_session_id,
       v_uid,
-      left(coalesce(v_item->>'event_name', 'unknown'), 64),
+      v_event_name,
       case
         when (v_item ? 'client_ts') then (v_item->>'client_ts')::timestamptz
         else null

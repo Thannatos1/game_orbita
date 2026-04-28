@@ -185,6 +185,12 @@ function orbitaMenuShell_drawMainMenu(){
   drawMenuButton(btnX,btnY,btnW,btnH,'JOGAR','#00f5d4',true,()=>{
     startRun(false,'menu_play');
   });
+  if(!isFirstSession){
+    X.fillStyle='rgba(255,255,255,0.36)';
+    X.font='11px -apple-system, system-ui, sans-serif';
+    X.textAlign='center';
+    X.fillText('Ou toque em qualquer area livre para entrar direto na run.',W/2,btnY+btnH+18);
+  }
 
   if(isFirstSession){
     X.fillStyle='rgba(255,255,255,0.55)';

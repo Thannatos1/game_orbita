@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --check js/services.js)",
+      "Bash(node --check js/fairness_rng_patch.js)",
+      "Bash(node --check js/ranking_hardening_phase2.js)",
+      "Bash(node --check js/app_bootstrap.js)",
+      "Bash(node --check sw.js)",
+      "Bash(curl -sL \"https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0/dist/umd/supabase.min.js\" -o /tmp/sb.js)",
+      "Bash(openssl dgst *)",
+      "Bash(openssl base64 *)",
+      "Read(//tmp/**)",
+      "Bash(curl -sI \"https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0/dist/umd/supabase.min.js\")"
+    ]
+  }
+}

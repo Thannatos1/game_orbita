@@ -289,6 +289,7 @@ let analyticsQueue = [];
 let analyticsFlushTimer = null;
 let analyticsSending = false;
 let analyticsSessionId = null;
+let loadProfileInFlight = null;
 
 const PENDING_SCORE_KEY = servicesAppStorageKeys.pendingScore || 'orbita_pending_score';
 let networkOnline = typeof navigator === 'undefined' ? true : navigator.onLine !== false;
@@ -470,23 +471,33 @@ function scheduleAnalyticsFlush(delay = 1500) {
   }, delay);
 }
 
+let analyticsBackoffUntil = 0;
+
 async function flushAnalyticsQueue(force = false) {
   if (analyticsSending) return false;
   if (!analyticsQueue.length) return true;
   if (!sb) initSupabase();
   if (!networkOnline) return false;
   if (!sb) return false;
+  if (Date.now() < analyticsBackoffUntil) return false;
 
-  const batch = analyticsQueue.slice(0, force ? 100 : 25);
+  const batch = analyticsQueue.slice(0, 25);
   analyticsSending = true;
   try {
     const { error } = await sb.rpc('log_analytics_events', { p_events: batch });
     if (error) throw error;
     analyticsQueue.splice(0, batch.length);
     persistAnalyticsQueue();
-    if (analyticsQueue.length) scheduleAnalyticsFlush(400);
+    if (analyticsQueue.length && Date.now() >= analyticsBackoffUntil) scheduleAnalyticsFlush(force ? 400 : 1500);
     return true;
   } catch (e) {
+    const msg = String(e?.message || e?.details || '').toLowerCase();
+    if (msg.includes('rate limit')) {
+      analyticsBackoffUntil = Date.now() + 60_000;
+    } else if (msg.includes('batch too large')) {
+      analyticsQueue = analyticsQueue.slice(-100);
+      persistAnalyticsQueue();
+    }
     console.warn('[Orbita] analytics flush failed', e);
     return false;
   } finally {
@@ -537,12 +548,12 @@ async function initAuth() {
       loadProfile().then(() => {
         console.log('[Orbita] Profile loaded. playerName:', playerName, 'needsNickname:', needsNickname);
         menuScreen = (playerName && !needsNickname) ? 'main' : 'nickname';
-      });
+      }).catch(e => console.warn('[Orbita] loadProfile chain failed', e));
 
       trackEvent('auth_signed_in', { has_nickname: !!playerName });
       scheduleAnalyticsFlush(400);
-      flushPendingScoreSubmission();
-      refreshPlayerMlProfile(14, { maxAgeMinutes: 20 });
+      flushPendingScoreSubmission().catch(e => console.warn('[Orbita] flushPendingScoreSubmission failed', e));
+      refreshPlayerMlProfile(14, { maxAgeMinutes: 20 }).catch(e => console.warn('[Orbita] refreshPlayerMlProfile failed', e));
     } else {
       menuScreen = 'main';
       authLoading = false;
@@ -556,30 +567,38 @@ async function initAuth() {
   console.log('[Orbita] initAuth done. Screen:', menuScreen);
   trackEvent('app_open', { screen: menuScreen, has_session: !!currentUser, online: networkOnline });
   scheduleAnalyticsFlush(600);
-  flushPendingScoreSubmission();
+  flushPendingScoreSubmission().catch(e => console.warn('[Orbita] flushPendingScoreSubmission failed', e));
 }
 
 async function loadProfile() {
   if (!sb || !currentUser) return;
-  try {
-    const { data, error } = await sb
-      .from('profiles')
-      .select('name')
-      .eq('id', currentUser.id)
-      .maybeSingle();
-    if (error) throw error;
-    if (data && data.name) {
-      playerName = String(data.name);
-      setCachedProfileName(playerName);
-      needsNickname = false;
-    } else {
-      playerName = '';
-      setCachedProfileName('');
-      needsNickname = true;
+  if (loadProfileInFlight) return loadProfileInFlight;
+  const ownerAtStart = currentUser.id;
+  loadProfileInFlight = (async () => {
+    try {
+      const { data, error } = await sb
+        .from('profiles')
+        .select('name')
+        .eq('id', ownerAtStart)
+        .maybeSingle();
+      if (error) throw error;
+      if (!currentUser || currentUser.id !== ownerAtStart) return;
+      if (data && data.name) {
+        playerName = String(data.name);
+        setCachedProfileName(playerName);
+        needsNickname = false;
+      } else {
+        playerName = '';
+        setCachedProfileName('');
+        needsNickname = true;
+      }
+    } catch(e) {
+      console.error('Load profile failed', e);
+    } finally {
+      loadProfileInFlight = null;
     }
-  } catch(e) {
-    console.error('Load profile failed', e);
-  }
+  })();
+  return loadProfileInFlight;
 }
 
 async function signInWithGoogle() {
@@ -590,9 +609,10 @@ async function signInWithGoogle() {
   }
   try {
     trackEvent('auth_sign_in_click', { screen: menuScreen || 'unknown' });
+    const safeRedirect = new URL('./', window.location.href).toString();
     await sb.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin + window.location.pathname }
+      options: { redirectTo: safeRedirect }
     });
   } catch(e) {
     console.error('Sign in failed', e);
@@ -627,7 +647,7 @@ async function startServerRunSession(mode = 'normal', source = 'unknown') {
     return null;
   }
 
-  refreshPlayerMlProfile(14, { maxAgeMinutes: 15 });
+  refreshPlayerMlProfile(14, { maxAgeMinutes: 15 }).catch(e => console.warn('[Orbita] refreshPlayerMlProfile failed', e));
 
   try {
     const { data, error } = await sb.rpc('start_run_session', {
@@ -945,11 +965,11 @@ if (sb) {
       menuScreen = 'main';
       loadProfile().then(() => {
         menuScreen = (playerName && !needsNickname) ? 'main' : 'nickname';
-      });
+      }).catch(e => console.warn('[Orbita] loadProfile chain failed', e));
       trackEvent('auth_signed_in', { has_nickname: !!playerName });
       scheduleAnalyticsFlush(400);
-      flushPendingScoreSubmission();
-      refreshPlayerMlProfile(14, { maxAgeMinutes: 20 });
+      flushPendingScoreSubmission().catch(e => console.warn('[Orbita] flushPendingScoreSubmission failed', e));
+      refreshPlayerMlProfile(14, { maxAgeMinutes: 20 }).catch(e => console.warn('[Orbita] refreshPlayerMlProfile failed', e));
     } else if (event === 'SIGNED_OUT') {
       currentUser = null;
       playerName = '';
@@ -993,11 +1013,18 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-window.addEventListener('beforeunload', () => {
+function onAppTeardown() {
+  if (analyticsFlushTimer) {
+    clearTimeout(analyticsFlushTimer);
+    analyticsFlushTimer = null;
+  }
   persistAnalyticsQueue();
   persistPendingScoreSubmission();
   persistRunSession();
-});
+}
+
+window.addEventListener('beforeunload', onAppTeardown);
+window.addEventListener('pagehide', onAppTeardown);
 
 if (servicesAppServiceRegistry && typeof servicesAppServiceRegistry.register === 'function') {
   servicesAppServiceRegistry.register('initSupabase', initSupabase);
