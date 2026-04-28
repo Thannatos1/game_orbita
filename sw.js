@@ -1,4 +1,4 @@
-const CACHE_NAME = 'orbita-pwa-v60';
+const CACHE_NAME = 'orbita-pwa-v76';
 const SUPABASE_SDK_URL = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0/dist/umd/supabase.min.js';
 const APP_SHELL = [
   './',
