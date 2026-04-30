@@ -448,6 +448,8 @@ function reset(){
   if(typeof resetBackgroundAnchors === 'function') resetBackgroundAnchors();
   score=0;newRec=false;deathT=0;shakeT=0;flashA=0;
   phaseMsg='';phaseMsgT=0;combo=0;maxCombo=0;comboTimer=0;lastCaptureTime=0;
+  deadRetryQueued=false;
+  deadRetrySource='death_tap';
   particles=[];ringParticles=[];scorePopups=[];
   // Reset powerups
   powerups=[];
@@ -680,6 +682,7 @@ function die(){
     return;
   }
 
+  clearDeadRetryQueue();
   state=ST.DEAD;deathT=0;flashA=0.4;shakeT=0.35;shakeA=12;
   if(score>best){
     best=score;newRec=true;sndRecord();
@@ -770,6 +773,37 @@ function collectPowerup(p){
 // Pause button area (top right corner)
 const PAUSE_BTN = { size: 44, margin: 16 };
 const MUTE_BTN = { size: 44, margin: 16 };
+const DEAD_QUICK_RESTART_DELAY = 0.16;
+let deadRetryQueued = false;
+let deadRetrySource = 'death_tap';
+
+function canUseInstantDeadRetry(){
+  return state===ST.DEAD && pendingUnlocks.length===0;
+}
+
+function canTriggerDeadRetryNow(){
+  return canUseInstantDeadRetry() && deathT >= DEAD_QUICK_RESTART_DELAY;
+}
+
+function queueDeadRetry(source='death_tap'){
+  if(!canUseInstantDeadRetry()) return false;
+  deadRetryQueued = true;
+  deadRetrySource = source;
+  return true;
+}
+
+function clearDeadRetryQueue(){
+  deadRetryQueued = false;
+  deadRetrySource = 'death_tap';
+}
+
+function maybeTriggerQueuedDeadRetry(){
+  if(!deadRetryQueued || !canTriggerDeadRetryNow()) return false;
+  const source = deadRetrySource || 'death_tap';
+  clearDeadRetryQueue();
+  quickRestartGame(source);
+  return true;
+}
 
 function isPauseBtnTap(x, y) {
   const bx = W - PAUSE_BTN.margin - PAUSE_BTN.size;
@@ -825,6 +859,9 @@ function startRun(useZen, source='unknown', opts) {
   zenMode = testMode ? false : !!useZen;
   pendingUnlocks = [];
   reset();
+  tutorialStep = 0;
+  tutorialT = 0;
+  clearDeadRetryQueue();
   state = ST.PLAY;
   setMusicVolume(zenMode ? 0.10 : 0.12);
 
@@ -885,13 +922,13 @@ function handleTap(x, y){
   if(state===ST.DEAD){
     for(const b of menuBtnAreas){
       if(x>=b.x && x<=b.x+b.w && y>=b.y && y<=b.y+b.h){
+        clearDeadRetryQueue();
         b.action();
         return;
       }
     }
-    if(deathT>0.55){
-      quickRestartGame();
-    }
+    if(canTriggerDeadRetryNow()) quickRestartGame('death_tap');
+    else queueDeadRetry('death_tap');
     return;
   }
 
@@ -902,6 +939,9 @@ function handleTap(x, y){
         b.action(x,y);
         return;
       }
+    }
+    if(menuScreen==='main'){
+      startRun(false,'menu_tap_anywhere');
     }
     return;
   }
@@ -914,7 +954,10 @@ function handleInput(){
   // Backwards compat for keyboard - only works during play
   if(state===ST.PLAY)release();
   else if(state===ST.MENU&&menuScreen==='main'){startRun(false,'keyboard_menu');}
-  else if(state===ST.DEAD&&deathT>0.6){quickRestartGame('keyboard_retry');}
+  else if(state===ST.DEAD){
+    if(canTriggerDeadRetryNow()) quickRestartGame('keyboard_retry');
+    else queueDeadRetry('keyboard_retry');
+  }
 }
 
 C.addEventListener('touchstart',e=>{
@@ -1084,7 +1127,11 @@ function update(dt){
     if(p.life<=0)scorePopups.splice(i,1);
   }
 
-  if(state===ST.DEAD){deathT+=dt;return;}
+  if(state===ST.DEAD){
+    deathT+=dt;
+    if(maybeTriggerQueuedDeadRetry()) return;
+    return;
+  }
   if(state===ST.PAUSE)return;
   if(state!==ST.PLAY)return;
 
