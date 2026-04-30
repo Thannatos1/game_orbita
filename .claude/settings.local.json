@@ -14,7 +14,11 @@
       "Bash(py --version)",
       "Bash(python -m http.server 8000)",
       "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:8000/)",
-      "PowerShell($ProgressPreference='SilentlyContinue'; $url='https://browser.sentry-cdn.com/7.119.2/bundle.min.js'; $tmp=Join-Path $env:TEMP 'sentry-bundle.js'; Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing; $sha=[System.Security.Cryptography.SHA384]::Create\\(\\); $bytes=[System.IO.File]::ReadAllBytes\\($tmp\\); $hash=$sha.ComputeHash\\($bytes\\); $b64=[Convert]::ToBase64String\\($hash\\); Write-Output \\(\"sha384-\" + $b64\\); Write-Output \\(\"size=\" + $bytes.Length\\))"
+      "PowerShell($ProgressPreference='SilentlyContinue'; $url='https://browser.sentry-cdn.com/7.119.2/bundle.min.js'; $tmp=Join-Path $env:TEMP 'sentry-bundle.js'; Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing; $sha=[System.Security.Cryptography.SHA384]::Create\\(\\); $bytes=[System.IO.File]::ReadAllBytes\\($tmp\\); $hash=$sha.ComputeHash\\($bytes\\); $b64=[Convert]::ToBase64String\\($hash\\); Write-Output \\(\"sha384-\" + $b64\\); Write-Output \\(\"size=\" + $bytes.Length\\))",
+      "PowerShell(Start-Process \"http://localhost:8000\")",
+      "WebFetch(domain:play.google.com)",
+      "PowerShell($ProgressPreference='SilentlyContinue'; $url='https://lastorbit.galileuneto146.workers.dev/'; try { $r = Invoke-WebRequest -Uri $url -UseBasicParsing -Method Head -MaximumRedirection 5; Write-Output \"=== Status: $\\($r.StatusCode\\) ===\"; Write-Output \"=== Headers raiz ===\"; $r.Headers.GetEnumerator\\(\\) | Sort-Object Name | ForEach-Object { \"$\\($_.Key\\): $\\($_.Value\\)\" } } catch { Write-Output \"ERRO: $_\" })",
+      "WebFetch(domain:lastorbit.galileuneto146.workers.dev)"
     ]
   }
 }

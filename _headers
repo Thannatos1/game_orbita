@@ -1,0 +1,33 @@
+# Cloudflare Pages / Netlify _headers
+# Aplica headers HTTP por padrao de path. Mais forte que <meta>.
+
+/*
+  # Clickjacking: bloqueia embed em iframe de outras origens
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Frame-Options: DENY
+  # Forca HTTPS por 1 ano (HSTS). Inclui subdominios.
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  # MIME sniffing off
+  X-Content-Type-Options: nosniff
+  # Referrer minimo
+  Referrer-Policy: strict-origin-when-cross-origin
+  # Bloqueia APIs invasivas que o jogo nao usa
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()
+
+# Service worker e index.html nao devem ser cacheados pelo edge
+# (o SW gerencia o proprio cache via CACHE_NAME versionado).
+/sw.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+/manifest.webmanifest
+  Cache-Control: public, max-age=3600
+
+# Assets versionaveis podem cachear forte (o SW invalida via cache bump)
+/js/*
+  Cache-Control: public, max-age=3600
+
+/icons/*
+  Cache-Control: public, max-age=86400

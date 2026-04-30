@@ -1447,7 +1447,9 @@
     X.fill();
     X.restore();
 
-    // ---------- 3. TITULO "ÓRBITA" com gradiente + letter-spacing ----------
+    // ---------- 3. TITULO "LAST ORBIT" em duas linhas (logotype) ----------
+    // Linha 1: "LAST" pequeno, translucido, kerning largo (vibe sci-fi)
+    // Linha 2: "ORBIT" gigante, gradiente forte, glow ciano (peso visual principal)
     X.textAlign = 'center';
     X.textBaseline = 'middle';
     const titleY = H * 0.36;
@@ -1457,34 +1459,54 @@
     X.translate(W/2, titleY);
     X.scale(titlePulse, titlePulse);
 
-    // Gradiente vertical no titulo
-    const titleGrad = X.createLinearGradient(0, -titleSize/2, 0, titleSize/2);
+    // ----- Linha 1: "LAST" sobrescrito -----
+    const overSize = titleSize * 0.34;
+    const overY = -titleSize * 0.55;
+    X.save();
+    X.globalAlpha = 0.72;
+    X.fillStyle = '#80f5e8';
+    X.font = '600 ' + overSize + 'px -apple-system, system-ui, sans-serif';
+    X.shadowColor = '#00f5d4';
+    X.shadowBlur = 10;
+    // Letter-spacing largo pra "LAST" (estilo sci-fi)
+    const overLetters = 'LAST'.split('');
+    const overSpacing = overSize * 0.45;
+    const overWidths = overLetters.map(l => X.measureText(l).width);
+    const overTotalW = overWidths.reduce((a,b) => a+b, 0) + overSpacing * (overLetters.length - 1);
+    let ocx = -overTotalW / 2;
+    for (let i = 0; i < overLetters.length; i++) {
+      X.fillText(overLetters[i], ocx + overWidths[i]/2, overY);
+      ocx += overWidths[i] + overSpacing;
+    }
+    X.shadowBlur = 0;
+    X.restore();
+
+    // ----- Linha 2: "ORBIT" principal -----
+    const mainY = titleSize * 0.05;
+    const titleGrad = X.createLinearGradient(0, mainY - titleSize/2, 0, mainY + titleSize/2);
     titleGrad.addColorStop(0, '#ffffff');
     titleGrad.addColorStop(0.5, '#80f5e8');
     titleGrad.addColorStop(1, '#00f5d4');
 
-    // Sombra de glow ciano
     X.shadowColor = '#00f5d4';
     X.shadowBlur = 24;
     X.fillStyle = titleGrad;
     X.font = 'bold ' + titleSize + 'px -apple-system, system-ui, sans-serif';
 
-    // Letter-spacing manual: desenha letra por letra
-    const letters = 'ÓRBITA'.split('');
-    const spacing = titleSize * 0.08;  // pequeno espaco extra
-    let totalW = 0;
+    const letters = 'ORBIT'.split('');
+    const spacing = titleSize * 0.08;
     const widths = letters.map(l => X.measureText(l).width);
-    totalW = widths.reduce((a, b) => a + b, 0) + spacing * (letters.length - 1);
+    const totalW = widths.reduce((a, b) => a + b, 0) + spacing * (letters.length - 1);
     let cx = -totalW / 2;
     for (let i = 0; i < letters.length; i++) {
-      X.fillText(letters[i], cx + widths[i]/2, 0);
+      X.fillText(letters[i], cx + widths[i]/2, mainY);
       cx += widths[i] + spacing;
     }
     X.shadowBlur = 0;
     X.restore();
 
-    // Linha decorativa abaixo do titulo
-    const lineY = titleY + titleSize * 0.55;
+    // Linha decorativa abaixo do titulo (deslocada pra baixo pra acomodar 2 linhas)
+    const lineY = titleY + titleSize * 0.72;
     const lineW = Math.min(W * 0.5, 220);
     X.save();
     X.globalAlpha = 0.35;

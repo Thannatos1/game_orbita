@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>Órbita — Assets Generator</title>
+<title>Last Orbit — Assets Generator</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -64,7 +64,7 @@
 </head>
 <body>
 
-<h1>Órbita Assets Generator <small>v1.0</small></h1>
+<h1>Last Orbit Assets Generator <small>v1.0</small></h1>
 <p>Renderiza todos os assets necessários pra publicação na Play Store / App Store. Clique em "Download" embaixo de cada asset.</p>
 
 <div class="info">
@@ -208,7 +208,7 @@
 </div>
 
 <div class="footer">
-  Órbita Asset Generator · 2026
+  Last Orbit Asset Generator · 2026
 </div>
 
 <script>
@@ -535,24 +535,37 @@ function renderIcon(ctx, w, h, opts) {
   const titleX = w * 0.05;
   const titleY = h * 0.42;
 
-  // Title "ÓRBITA" with gradient
+  // Title "LAST ORBIT" — duas linhas (logotype)
   ctx.save();
-  ctx.font = 'bold 130px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  const titleGrad = ctx.createLinearGradient(0, titleY - 65, 0, titleY + 65);
+
+  // Linha 1: "LAST" pequeno, kerning largo
+  const overY = titleY - 56;
+  ctx.font = '600 44px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.fillStyle = 'rgba(128,245,232,0.85)';
+  ctx.shadowColor = '#00f5d4';
+  ctx.shadowBlur = 14;
+  let ox = titleX;
+  for (const l of 'LAST') {
+    ctx.fillText(l, ox, overY);
+    ox += ctx.measureText(l).width + 18;
+  }
+
+  // Linha 2: "ORBIT" gigante com gradiente
+  const mainY = titleY + 26;
+  const titleGrad = ctx.createLinearGradient(0, mainY - 65, 0, mainY + 65);
   titleGrad.addColorStop(0, '#ffffff');
   titleGrad.addColorStop(0.55, '#80f5e8');
   titleGrad.addColorStop(1, '#00f5d4');
   ctx.fillStyle = titleGrad;
   ctx.shadowColor = '#00f5d4';
   ctx.shadowBlur = 32;
-  // Letter-spacing manual
-  const letters = 'ÓRBITA'.split('');
-  let x = titleX;
-  for (const l of letters) {
-    ctx.fillText(l, x, titleY);
-    x += ctx.measureText(l).width + 8;
+  ctx.font = 'bold 130px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  let mx = titleX;
+  for (const l of 'ORBIT') {
+    ctx.fillText(l, mx, mainY);
+    mx += ctx.measureText(l).width + 8;
   }
   ctx.shadowBlur = 0;
   ctx.restore();
@@ -614,27 +627,45 @@ function screenshotMenuRender() {
   drawCentralNode(ctx, demoCx, demoCy, w * 0.014);
   drawOrbitingBall(ctx, demoCx, demoCy, demoR, w * 0.011, -Math.PI * 0.3, true);
 
-  // Title "ÓRBITA"
+  // Title "LAST ORBIT" — duas linhas (logotype centralizado)
   ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = 'bold 200px -apple-system, sans-serif';
   const titleY = h * 0.34;
-  const grad = ctx.createLinearGradient(0, titleY - 100, 0, titleY + 100);
+
+  // Linha 1: "LAST" sobrescrito, kerning largo, sci-fi
+  const overY = titleY - 130;
+  ctx.font = '600 70px -apple-system, sans-serif';
+  ctx.fillStyle = 'rgba(128,245,232,0.85)';
+  ctx.shadowColor = '#00f5d4';
+  ctx.shadowBlur = 22;
+  const overLetters = 'LAST'.split('');
+  const overWidths = overLetters.map(l => ctx.measureText(l).width);
+  const overSp = 28;
+  const overTW = overWidths.reduce((a,b)=>a+b,0) + overSp * (overLetters.length - 1);
+  let ocx = w/2 - overTW/2;
+  for (let i=0; i<overLetters.length; i++){
+    ctx.fillText(overLetters[i], ocx + overWidths[i]/2, overY);
+    ocx += overWidths[i] + overSp;
+  }
+
+  // Linha 2: "ORBIT" gigante com gradiente
+  const mainY = titleY + 30;
+  ctx.font = 'bold 200px -apple-system, sans-serif';
+  const grad = ctx.createLinearGradient(0, mainY - 100, 0, mainY + 100);
   grad.addColorStop(0, '#ffffff');
   grad.addColorStop(0.55, '#80f5e8');
   grad.addColorStop(1, '#00f5d4');
   ctx.fillStyle = grad;
   ctx.shadowColor = '#00f5d4';
   ctx.shadowBlur = 60;
-  // letter spacing
-  const letters = 'ÓRBITA'.split('');
+  const letters = 'ORBIT'.split('');
   const widths = letters.map(l => ctx.measureText(l).width);
   const spacing = 16;
   const totalW = widths.reduce((a,b) => a+b, 0) + spacing * (letters.length - 1);
   let cx = w/2 - totalW/2;
   for (let i = 0; i < letters.length; i++) {
-    ctx.fillText(letters[i], cx + widths[i]/2, titleY);
+    ctx.fillText(letters[i], cx + widths[i]/2, mainY);
     cx += widths[i] + spacing;
   }
   ctx.shadowBlur = 0;

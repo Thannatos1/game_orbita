@@ -7,9 +7,9 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Órbita">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' https://*.supabase.co https://cdn.jsdelivr.net https://accounts.google.com https://browser.sentry-cdn.com https://*.sentry.io; script-src 'self' https://cdn.jsdelivr.net https://accounts.google.com https://browser.sentry-cdn.com; connect-src 'self' https://*.supabase.co https://accounts.google.com https://*.sentry.io https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io; style-src 'self' 'unsafe-inline'; img-src 'self' data:; worker-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self';">
-<title>Órbita</title>
+<meta name="apple-mobile-web-app-title" content="Last Orbit">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' https://*.supabase.co https://cdn.jsdelivr.net https://accounts.google.com https://browser.sentry-cdn.com https://*.sentry.io; script-src 'self' https://cdn.jsdelivr.net https://accounts.google.com https://browser.sentry-cdn.com; connect-src 'self' https://*.supabase.co https://accounts.google.com https://browser.sentry-cdn.com https://*.sentry.io https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io; style-src 'self' 'unsafe-inline'; img-src 'self' data:; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self';">
+<title>Last Orbit</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
 <link rel="apple-touch-icon" href="./icons/icon-192.png">
@@ -59,19 +59,29 @@ canvas{display:block;width:100vw;height:100vh}
   to{opacity:1}
 }
 
-/* Titulo com gradiente */
+/* Titulo com gradiente — logotype 2 linhas */
 .splash-title{
-  font-size:clamp(48px,16vw,84px);
-  font-weight:700;
-  letter-spacing:.08em;
+  display:flex;flex-direction:column;align-items:center;
   margin-bottom:54px;
+  position:relative;z-index:2;
+  animation:splash-title-pulse 2.2s ease-in-out infinite alternate;
+}
+.splash-title .over{
+  font-size:clamp(14px,4.5vw,22px);
+  font-weight:600;letter-spacing:.45em;
+  color:#80f5e8;opacity:.75;
+  text-shadow:0 0 12px rgba(0,245,212,.6);
+  margin-bottom:8px;padding-left:.45em; /* compensa letter-spacing pra centralizar */
+}
+.splash-title .main{
+  font-size:clamp(48px,16vw,84px);
+  font-weight:700;letter-spacing:.08em;
   background:linear-gradient(180deg,#ffffff 0%,#80f5e8 55%,#00f5d4 100%);
   -webkit-background-clip:text;background-clip:text;
   -webkit-text-fill-color:transparent;color:transparent;
   text-shadow:0 0 40px rgba(0,245,212,.35);
   filter:drop-shadow(0 0 28px rgba(0,245,212,.45));
-  position:relative;z-index:2;
-  animation:splash-title-pulse 2.2s ease-in-out infinite alternate;
+  line-height:1;
 }
 @keyframes splash-title-pulse{
   from{transform:scale(1);filter:drop-shadow(0 0 24px rgba(0,245,212,.4))}
@@ -82,7 +92,7 @@ canvas{display:block;width:100vw;height:100vh}
 .splash-title::after{
   content:'';position:absolute;left:50%;bottom:-14px;
   transform:translateX(-50%);
-  width:55%;height:1px;
+  width:60%;max-width:280px;height:1px;
   background:linear-gradient(90deg,transparent 0%,#00f5d4 50%,transparent 100%);
   opacity:.5;
 }
@@ -168,7 +178,7 @@ canvas{display:block;width:100vw;height:100vh}
 </head>
 <body>
 <div id="orbita-splash">
-  <div class="splash-title">ÓRBITA</div>
+  <div class="splash-title"><span class="over">LAST</span><span class="main">ORBIT</span></div>
   <div class="splash-orbit">
     <div class="splash-node"></div>
     <div class="splash-orbit-wrap">

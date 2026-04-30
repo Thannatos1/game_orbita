@@ -1,4 +1,4 @@
-# Órbita — Contexto do projeto pra Claude
+# Last Orbit (codename: orbita) — Contexto do projeto pra Claude
 
 > Este arquivo é lido automaticamente pelo Claude Code em qualquer nova sessão neste diretório.
 > Atualize quando o projeto mudar significativamente.
@@ -7,7 +7,9 @@
 
 ## TL;DR
 
-**Órbita** é um jogo arcade web (Canvas 2D) inspirado em Flappy Bird, mas com uma mecânica de **bola orbitando nós** que o jogador "solta" no momento certo pra capturar o próximo nó. Hyper-casual, one-button. Distribuído como **PWA** que será wrappado em **AAB pra Play Store**.
+**Last Orbit** é um jogo arcade web (Canvas 2D) inspirado em Flappy Bird, mas com uma mecânica de **bola orbitando nós** que o jogador "solta" no momento certo pra capturar o próximo nó. Hyper-casual, one-button. Distribuído como **PWA** que será wrappado em **AAB pra Play Store**.
+
+> **Nota de branding (2026-04):** O nome de marca mudou de "Órbita" (PT-BR) pra "Last Orbit" (global). O codename interno permanece `orbita` em **todas** as referências técnicas (`orbita_*` no localStorage, `_AC_SALT='orb1ta_…'`, `CACHE_NAME='orbita-pwa-…'`, `OrbitaI18n`, `[Orbita]` em logs, `tags: { game: 'orbita' }` no Sentry, `release: 'orbita@…'`). **Não renomear codename** — quebraria saves de testers e invalidaria sigs anti-cheat existentes.
 
 Owner: Galileu (galileuneto146@gmail.com)
 Idiomas: PT-BR (default), EN, ES (auto-detect via `navigator.language`)

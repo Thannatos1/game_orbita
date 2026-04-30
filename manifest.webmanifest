@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "Órbita",
-  "short_name": "Órbita",
+  "name": "Last Orbit",
+  "short_name": "Last Orbit",
   "description": "Salte de órbita em órbita em um arcade espacial de um toque.",
   "lang": "pt-BR",
   "start_url": "./index.html",

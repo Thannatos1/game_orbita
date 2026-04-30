@@ -2242,11 +2242,24 @@ function drawRankingMenu(){
 function drawLoadingScreen(){
   X.textAlign='center';X.textBaseline='middle';
 
-  // Big title
+  // Big title em duas linhas (logotype: LAST pequeno em cima, ORBIT gigante)
+  X.shadowColor='#b0b0ff';X.shadowBlur=12;
+  X.fillStyle='rgba(180,200,255,0.75)';
+  X.font='600 18px -apple-system, system-ui, sans-serif';
+  X.save();
+  // Letter-spacing manual pra "LAST"
+  const _lsLetters='LAST'.split('');
+  const _lsSp=8;
+  let _lsTW=0;
+  const _lsW=_lsLetters.map(l=>X.measureText(l).width);
+  _lsTW=_lsW.reduce((a,b)=>a+b,0)+_lsSp*(_lsLetters.length-1);
+  let _lsCx=W/2-_lsTW/2;
+  for(let i=0;i<_lsLetters.length;i++){X.fillText(_lsLetters[i],_lsCx+_lsW[i]/2,H*0.36);_lsCx+=_lsW[i]+_lsSp;}
+  X.restore();
   X.shadowColor='#b0b0ff';X.shadowBlur=30;
   X.fillStyle='#e0e0ff';
   X.font='bold 54px -apple-system, system-ui, sans-serif';
-  X.fillText('ÓRBITA',W/2,H*0.4);
+  X.fillText('ORBIT',W/2,H*0.42);
   X.shadowBlur=0;
 
   // Animated ball orbiting
