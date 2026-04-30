@@ -9,84 +9,425 @@
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background: #05050f;
     color: #c8c8e0;
-    max-width: 720px;
+    max-width: 760px;
     margin: 0 auto;
-    padding: 2rem 1.5rem;
+    padding: 2rem 1.5rem 4rem;
     line-height: 1.7;
   }
-  h1 { color: #ffffff; font-size: 1.8rem; margin-bottom: 0.25rem; }
-  h2 { color: #a0a0cc; font-size: 1.1rem; margin-top: 2rem; }
+  h1 { color: #ffffff; font-size: 1.9rem; margin-bottom: 0.25rem; }
+  h2 { color: #c0c0e0; font-size: 1.15rem; margin-top: 2.2rem; border-bottom: 1px solid #1a1a30; padding-bottom: 0.3rem; }
+  h3 { color: #a0a0cc; font-size: 1.0rem; margin-top: 1.2rem; }
   p, li { font-size: 0.95rem; }
   ul { padding-left: 1.25rem; }
-  a { color: #7878ff; }
-  .updated { color: #666688; font-size: 0.85rem; margin-bottom: 2rem; }
+  a { color: #7aa8ff; }
+  code { background: #11112a; padding: 0.1rem 0.35rem; border-radius: 4px; color: #d0d0f0; font-size: 0.85rem; }
+  .updated { color: #6a6a88; font-size: 0.85rem; margin-bottom: 2rem; }
+  .lang-switch { color: #6a6a88; font-size: 0.85rem; margin-bottom: 1.5rem; }
+  .lang-switch a { margin-right: 0.75rem; }
+  table { width: 100%; border-collapse: collapse; margin: 0.5rem 0 1rem; font-size: 0.88rem; }
+  th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid #1a1a30; vertical-align: top; }
+  th { color: #c0c0e0; background: #0a0a1c; }
+  .note { background: #0d0d22; border-left: 3px solid #7aa8ff; padding: 0.75rem 1rem; margin: 1rem 0; border-radius: 4px; font-size: 0.9rem; color: #b8b8d8; }
+  .footer { margin-top: 3rem; color: #555575; font-size: 0.8rem; text-align: center; }
 </style>
 </head>
 <body>
 
+<div class="lang-switch">
+  <a href="#pt">Português</a> · <a href="#en">English</a>
+</div>
+
+<!-- ============================================================
+     PORTUGUÊS (pt-BR)
+     ============================================================ -->
+<section id="pt">
+
 <h1>Política de Privacidade</h1>
-<p class="updated">Última atualização: abril de 2026</p>
+<p class="updated">Última atualização: 28 de abril de 2026 · Versão 2.0</p>
 
 <p>
-  Esta Política de Privacidade descreve como o jogo <strong>Órbita</strong> coleta,
-  usa e protege as informações dos seus usuários.
+  Esta Política de Privacidade descreve como o jogo <strong>Órbita</strong>
+  ("aplicativo", "nós", "nosso") coleta, utiliza, armazena e compartilha informações
+  ao ser utilizado por você ("usuário", "jogador").
 </p>
 
-<h2>1. Informações coletadas</h2>
-<p>Ao usar o Órbita, podemos coletar as seguintes informações:</p>
+<p>
+  Ao instalar e utilizar o Órbita, você concorda com as práticas descritas neste documento.
+  Caso não concorde, não utilize o aplicativo.
+</p>
+
+<h2>1. Resumo executivo</h2>
 <ul>
-  <li><strong>Dados de conta (opcional):</strong> se você optar por fazer login com o Google, coletamos seu nome de exibição e endereço de e-mail para identificação no ranking global.</li>
-  <li><strong>Pontuações e progresso:</strong> melhor pontuação, número de partidas, conquistas desbloqueadas e skins adquiridas.</li>
-  <li><strong>Eventos de uso:</strong> ações genéricas dentro do jogo (abertura do app, início de partida, pontuação registrada) para fins de melhoria do produto. Nenhum dado pessoal é vinculado a esses eventos de forma identificável.</li>
+  <li><strong>Não pedimos seu nome, e-mail, telefone ou localização.</strong> O jogo funciona sem login.</li>
+  <li>Geramos um <strong>identificador anônimo aleatório (UUID)</strong> armazenado <em>apenas no seu próprio aparelho</em>, para medir retenção (D1/D7) e qualidade do jogo.</li>
+  <li>Coletamos <strong>eventos de jogo</strong> (abertura, início de partida, fim de partida com pontuação) — <em>nenhum dado pessoal identificável</em>.</li>
+  <li>Os dados são processados pela <strong>Supabase</strong> (infraestrutura de backend) com criptografia HTTPS/TLS.</li>
+  <li>Você pode <strong>apagar tudo</strong> a qualquer momento limpando os dados do app no Android (Configurações → Apps → Órbita → Armazenamento → Limpar dados).</li>
 </ul>
 
-<h2>2. Como usamos as informações</h2>
+<h2>2. Quais dados coletamos</h2>
+
+<h3>2.1 Dados armazenados localmente no seu aparelho</h3>
+<p>
+  O jogo usa o armazenamento local do navegador/WebView (<code>localStorage</code>) para salvar:
+</p>
 <ul>
-  <li>Exibir seu nome e pontuação no ranking global do jogo.</li>
-  <li>Salvar seu progresso entre sessões.</li>
-  <li>Melhorar a experiência de jogo com base em dados agregados de uso.</li>
+  <li>Sua melhor pontuação (<code>best</code>) e total de partidas jogadas</li>
+  <li>Configurações de áudio (volume, mute) e vibração</li>
+  <li>Um identificador anônimo aleatório (<code>orbita_anon_id</code>, formato UUID)</li>
+  <li>Datas de primeira sessão, última sessão e contagem de dias seguidos jogados</li>
+  <li>Estado de modo de teste (debug)</li>
+  <li>Assinatura de integridade do save (hash anti-fraude)</li>
+</ul>
+<p>
+  <strong>Esses dados nunca saem do seu aparelho</strong>, exceto quando enviados como
+  parte de um evento de telemetria descrito abaixo. Eles são removidos quando você
+  desinstala o app ou limpa os dados pelas configurações do sistema.
+</p>
+
+<h3>2.2 Dados enviados para nosso servidor (telemetria)</h3>
+<p>
+  Quando há conexão com a internet, o app envia eventos anônimos para o nosso backend
+  (Supabase) com o objetivo de medir retenção, qualidade técnica e detectar abuso.
+  Cada evento contém o seu <code>anon_id</code> (UUID aleatório local) — nenhum identificador
+  do dispositivo (IMEI, Advertising ID, etc.) é coletado.
+</p>
+
+<table>
+  <thead>
+    <tr><th>Evento</th><th>Quando</th><th>Dados enviados</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>session_start</code></td>
+      <td>Ao abrir o jogo</td>
+      <td>anon_id, primeira sessão, dias seguidos, dias desde a última sessão, contagem total de sessões</td>
+    </tr>
+    <tr>
+      <td><code>game_start</code></td>
+      <td>Ao iniciar uma partida</td>
+      <td>anon_id, modo, recorde atual</td>
+    </tr>
+    <tr>
+      <td><code>game_end</code></td>
+      <td>Ao morrer numa partida</td>
+      <td>anon_id, pontuação, recorde, duração da run, número de capturas, combo máximo, flag de "quase acerto", flag interna de validação anti-fraude</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>
+  <strong>Não coletamos:</strong> nome, e-mail, telefone, localização GPS, lista de
+  contatos, fotos, microfone, câmera, IDs de publicidade do Android (AAID), histórico
+  de navegação, ou qualquer dado biométrico.
+</p>
+
+<div class="note">
+  Mesmo que você jogue offline, o jogo funciona normalmente. Os eventos de telemetria
+  ficam em uma fila local e só são enviados quando há conexão. Se você nunca conectar
+  à internet, nenhum dado sai do seu aparelho.
+</div>
+
+<h2>3. Como usamos os dados</h2>
+<ul>
+  <li><strong>Salvar seu progresso local</strong> (recorde, configurações).</li>
+  <li><strong>Medir retenção do jogo</strong> (quantos jogadores voltam no dia seguinte) para melhorar o produto.</li>
+  <li><strong>Detectar comportamento anômalo</strong> (manipulação de pontuação) através de assinaturas criptográficas.</li>
+  <li><strong>Diagnosticar bugs</strong> via padrões agregados de eventos.</li>
+</ul>
+<p>
+  Não usamos esses dados para personalizar publicidade, perfilamento de usuário ou
+  qualquer outra finalidade comercial além das listadas acima.
+</p>
+
+<h2>4. Base legal (LGPD)</h2>
+<p>
+  Para usuários no Brasil, o tratamento dos dados se baseia nas seguintes hipóteses
+  legais previstas na Lei Geral de Proteção de Dados (Lei 13.709/2018):
+</p>
+<ul>
+  <li><strong>Legítimo interesse</strong> (Art. 7º, IX): para medir retenção e detectar fraude — dados anonimizados, sem prejuízo aos direitos do titular.</li>
+  <li><strong>Execução de contrato</strong> (Art. 7º, V): para fornecer a funcionalidade do jogo (salvar recorde local).</li>
 </ul>
 
-<h2>3. Armazenamento e segurança</h2>
+<h2>5. Compartilhamento com terceiros</h2>
 <p>
-  Os dados são armazenados de forma segura na plataforma <strong>Supabase</strong>
-  (supabase.com), que utiliza criptografia em trânsito (HTTPS/TLS) e em repouso.
-  Não armazenamos senhas — a autenticação é delegada ao Google OAuth 2.0.
+  <strong>Não vendemos, alugamos nem compartilhamos seus dados</strong> com anunciantes,
+  data brokers ou qualquer terceiro com fins comerciais.
+</p>
+<p>
+  Os únicos provedores que processam dados em nosso nome (operadores, conforme LGPD):
+</p>
+<ul>
+  <li>
+    <strong>Supabase, Inc.</strong> — hospedagem de banco de dados (PostgreSQL) e ingestão de eventos.
+    Servidores localizados nos EUA/UE. Política da Supabase: <a href="https://supabase.com/privacy" target="_blank">supabase.com/privacy</a>
+  </li>
+  <li>
+    <strong>jsDelivr</strong> — CDN que hospeda a SDK JavaScript da Supabase.
+    Apenas serve o arquivo estático, não recebe dados pessoais.
+  </li>
+</ul>
+
+<h2>6. Armazenamento e segurança</h2>
+<ul>
+  <li>Toda comunicação com o servidor usa <strong>HTTPS/TLS 1.2+</strong> (criptografia em trânsito).</li>
+  <li>Os dados em repouso são criptografados pela infraestrutura da Supabase.</li>
+  <li>O Órbita aplica <strong>políticas de Row-Level Security (RLS)</strong> no banco — nenhum usuário pode ler eventos de outros.</li>
+  <li>O <code>anon_id</code> não é vinculado a nenhum identificador pessoal e é armazenado apenas localmente — se você apagar os dados do app, o ID é regenerado e o histórico antigo se torna anônimo no servidor.</li>
+</ul>
+
+<h2>7. Retenção</h2>
+<p>
+  Os eventos de telemetria são retidos por até <strong>180 dias</strong> no servidor.
+  Após esse período, são agregados em estatísticas anônimas e os registros individuais
+  são excluídos.
+</p>
+<p>
+  Os dados locais (no seu aparelho) permanecem enquanto você não os apagar — você tem
+  controle total via Configurações do Android → Apps → Órbita → Armazenamento → Limpar dados.
 </p>
 
-<h2>4. Compartilhamento de dados</h2>
+<h2>8. Seus direitos</h2>
 <p>
-  Não vendemos, alugamos nem compartilhamos suas informações pessoais com terceiros,
-  exceto pelos provedores de infraestrutura essenciais ao funcionamento do jogo
-  (Supabase, Google OAuth).
+  Conforme a LGPD (Brasil) e regulamentações equivalentes (GDPR na UE, etc.), você tem direito a:
+</p>
+<ul>
+  <li>Confirmar a existência de tratamento dos seus dados</li>
+  <li>Acessar os dados associados ao seu <code>anon_id</code></li>
+  <li>Corrigir dados incompletos, inexatos ou desatualizados</li>
+  <li>Solicitar anonimização, bloqueio ou eliminação</li>
+  <li>Portabilidade dos dados</li>
+  <li>Revogar consentimento e eliminar os dados</li>
+</ul>
+<p>
+  Para exercer qualquer um desses direitos, entre em contato pelo e-mail abaixo
+  informando o seu <code>anon_id</code> (você pode encontrá-lo abrindo o console do navegador
+  no app e digitando <code>localStorage.getItem('orbita_anon_id')</code>).
 </p>
 
-<h2>5. Dados de menores</h2>
+<h2>9. Crianças</h2>
 <p>
-  O Órbita não é direcionado a crianças menores de 13 anos e não coleta
-  intencionalmente dados de menores. Se você acredita que coletamos dados de
-  uma criança, entre em contato para que possamos removê-los.
+  O Órbita não é direcionado a crianças menores de <strong>13 anos</strong> e não coleta
+  conscientemente dados de menores. Caso identifiquemos coleta involuntária, os dados
+  serão excluídos imediatamente. Pais ou responsáveis que suspeitem de coleta podem
+  entrar em contato pelo e-mail abaixo.
 </p>
 
-<h2>6. Exclusão de dados</h2>
+<h2>10. Permissões do Android</h2>
 <p>
-  Você pode solicitar a exclusão da sua conta e de todos os dados associados
-  a qualquer momento entrando em contato pelo e-mail abaixo. Os dados serão
-  removidos em até 30 dias.
+  O Órbita solicita as seguintes permissões mínimas:
+</p>
+<ul>
+  <li><strong>Internet</strong> — para enviar eventos de telemetria e validar integridade</li>
+  <li><strong>Vibração</strong> — opcional, para feedback tátil em capturas e morte</li>
+</ul>
+<p>
+  <strong>Não solicitamos:</strong> localização, contatos, câmera, microfone, armazenamento externo, SMS, telefone, calendário ou sensores corporais.
 </p>
 
-<h2>7. Contato</h2>
+<h2>11. Alterações nesta política</h2>
 <p>
-  Em caso de dúvidas ou solicitações relacionadas à sua privacidade, entre em contato:<br>
-  <a href="mailto:contato@orbita.app">contato@orbita.app</a>
+  Podemos atualizar esta política periodicamente. Quando houver mudanças significativas,
+  notificaremos os usuários através de um aviso no jogo na próxima abertura. A versão
+  mais atual estará sempre disponível nesta URL. O uso continuado após uma atualização
+  constitui aceitação da nova versão.
 </p>
 
-<h2>8. Alterações nesta política</h2>
+<h2>12. Contato</h2>
 <p>
-  Podemos atualizar esta política periodicamente. Notificaremos os usuários
-  sobre mudanças significativas por meio do jogo. O uso continuado após
-  alterações constitui aceitação da política atualizada.
+  Em caso de dúvidas, solicitações relativas aos seus direitos ou denúncias relacionadas
+  à privacidade:
 </p>
+<ul>
+  <li><strong>E-mail:</strong> <a href="mailto:contato@orbita.app">contato@orbita.app</a></li>
+  <li><strong>Encarregado de Dados (DPO/LGPD):</strong> mesmo e-mail acima</li>
+</ul>
+
+</section>
+
+<!-- ============================================================
+     ENGLISH (en)
+     ============================================================ -->
+<section id="en">
+
+<h1 style="margin-top: 4rem;">Privacy Policy</h1>
+<p class="updated">Last updated: April 28, 2026 · Version 2.0</p>
+
+<p>
+  This Privacy Policy describes how the <strong>Órbita</strong> game ("the app", "we",
+  "our") collects, uses, stores, and shares information when used by you ("the user",
+  "the player").
+</p>
+<p>
+  By installing and using Órbita, you agree to the practices described in this document.
+  If you do not agree, please do not use the app.
+</p>
+
+<h2>1. TL;DR</h2>
+<ul>
+  <li><strong>We do not ask for your name, email, phone, or location.</strong> The game works without login.</li>
+  <li>We generate a <strong>random anonymous identifier (UUID)</strong> stored <em>only on your own device</em>, for measuring retention and gameplay quality.</li>
+  <li>We collect <strong>gameplay events</strong> (app open, game start, game end with score) — <em>no personally identifiable information</em>.</li>
+  <li>Data is processed by <strong>Supabase</strong> (backend infrastructure) with HTTPS/TLS encryption.</li>
+  <li>You can <strong>delete everything</strong> at any time by clearing app data on Android (Settings → Apps → Órbita → Storage → Clear data).</li>
+</ul>
+
+<h2>2. Data we collect</h2>
+
+<h3>2.1 Data stored locally on your device</h3>
+<p>The game uses browser/WebView local storage (<code>localStorage</code>) to save:</p>
+<ul>
+  <li>Your best score and total games played</li>
+  <li>Audio settings (volume, mute) and vibration preferences</li>
+  <li>An anonymous random identifier (<code>orbita_anon_id</code>, UUID format)</li>
+  <li>First session date, last session date, and consecutive-day counter</li>
+  <li>Test mode (debug) state</li>
+  <li>Save-integrity signature (anti-fraud hash)</li>
+</ul>
+<p>
+  <strong>This data never leaves your device</strong>, except when sent as part of a
+  telemetry event described below. It is removed when you uninstall the app or clear data.
+</p>
+
+<h3>2.2 Data sent to our server (telemetry)</h3>
+<p>
+  When you have an internet connection, the app sends anonymous events to our backend
+  (Supabase) for the purpose of measuring retention, technical quality, and detecting
+  abuse. Each event contains your <code>anon_id</code> (random local UUID) — no device
+  identifiers (IMEI, Advertising ID, etc.) are collected.
+</p>
+
+<table>
+  <thead>
+    <tr><th>Event</th><th>When</th><th>Data sent</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>session_start</code></td>
+      <td>App open</td>
+      <td>anon_id, first session, day streak, days since last session, total session count</td>
+    </tr>
+    <tr>
+      <td><code>game_start</code></td>
+      <td>Starting a game</td>
+      <td>anon_id, mode, current best</td>
+    </tr>
+    <tr>
+      <td><code>game_end</code></td>
+      <td>Dying in a game</td>
+      <td>anon_id, score, best, run duration, capture count, max combo, near-miss flag, anti-fraud validation flag</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>
+  <strong>We do NOT collect:</strong> name, email, phone, GPS location, contacts list,
+  photos, microphone, camera, Android Advertising ID (AAID), browsing history, or any
+  biometric data.
+</p>
+
+<h2>3. How we use the data</h2>
+<ul>
+  <li><strong>Save your local progress</strong> (best score, settings).</li>
+  <li><strong>Measure game retention</strong> (how many players return the next day) to improve the product.</li>
+  <li><strong>Detect anomalous behavior</strong> (score manipulation) via cryptographic signatures.</li>
+  <li><strong>Diagnose bugs</strong> through aggregated event patterns.</li>
+</ul>
+<p>
+  We do not use this data for ad personalization, user profiling, or any commercial
+  purpose beyond the above.
+</p>
+
+<h2>4. Sharing with third parties</h2>
+<p>
+  <strong>We do not sell, rent, or share your data</strong> with advertisers, data
+  brokers, or any third party for commercial purposes.
+</p>
+<p>
+  The only providers processing data on our behalf (data processors):
+</p>
+<ul>
+  <li>
+    <strong>Supabase, Inc.</strong> — PostgreSQL database hosting and event ingestion.
+    Servers in US/EU. Supabase Privacy Policy: <a href="https://supabase.com/privacy" target="_blank">supabase.com/privacy</a>
+  </li>
+  <li>
+    <strong>jsDelivr</strong> — CDN hosting Supabase's JavaScript SDK. Static file
+    serving only; no personal data.
+  </li>
+</ul>
+
+<h2>5. Storage and security</h2>
+<ul>
+  <li>All server communication uses <strong>HTTPS/TLS 1.2+</strong> (encryption in transit).</li>
+  <li>Data at rest is encrypted by Supabase infrastructure.</li>
+  <li>Órbita applies <strong>Row-Level Security (RLS)</strong> policies — no user can read other users' events.</li>
+  <li>The <code>anon_id</code> is not linked to any personal identifier and is stored only locally — if you clear app data, the ID regenerates and the old history becomes anonymous on the server.</li>
+</ul>
+
+<h2>6. Retention</h2>
+<p>
+  Telemetry events are retained for up to <strong>180 days</strong> on the server.
+  After that period, they are aggregated into anonymous statistics and individual
+  records are deleted.
+</p>
+
+<h2>7. Your rights (GDPR / CCPA / LGPD)</h2>
+<p>
+  Under EU GDPR, California CCPA, Brazil LGPD, and equivalent regulations, you have the right to:
+</p>
+<ul>
+  <li>Access data associated with your <code>anon_id</code></li>
+  <li>Correct inaccurate data</li>
+  <li>Request deletion ("right to be forgotten")</li>
+  <li>Data portability</li>
+  <li>Withdraw consent</li>
+  <li>Lodge a complaint with a supervisory authority</li>
+</ul>
+<p>
+  To exercise these rights, contact the email below with your <code>anon_id</code> (find
+  it via browser console: <code>localStorage.getItem('orbita_anon_id')</code>).
+</p>
+
+<h2>8. Children</h2>
+<p>
+  Órbita is not directed at children under <strong>13 years old</strong> (16 in some EU
+  jurisdictions) and does not knowingly collect data from minors. If we discover
+  unintentional collection, the data will be deleted immediately. Parents or guardians
+  who suspect collection should contact the email below.
+</p>
+
+<h2>9. Android permissions</h2>
+<p>Órbita requests the following minimal permissions:</p>
+<ul>
+  <li><strong>Internet</strong> — to send telemetry events and validate integrity</li>
+  <li><strong>Vibration</strong> — optional, for tactile feedback on captures and death</li>
+</ul>
+<p>
+  <strong>We do NOT request:</strong> location, contacts, camera, microphone, external
+  storage, SMS, phone, calendar, or body sensors.
+</p>
+
+<h2>10. Changes to this policy</h2>
+<p>
+  We may update this policy periodically. When significant changes occur, we will
+  notify users via an in-game notice on next app open. The most current version is
+  always available at this URL. Continued use after an update constitutes acceptance
+  of the new version.
+</p>
+
+<h2>11. Contact</h2>
+<ul>
+  <li><strong>Email:</strong> <a href="mailto:contato@orbita.app">contato@orbita.app</a></li>
+  <li><strong>Data Protection Officer (DPO):</strong> same email</li>
+</ul>
+
+</section>
+
+<div class="footer">
+  Órbita · Política de Privacidade v2.0 · 2026
+</div>
 
 </body>
 </html>

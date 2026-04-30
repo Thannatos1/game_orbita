@@ -9,6 +9,260 @@
 (function(){
   'use strict';
 
+  // ---------- ANDROID BACK BUTTON ----------
+  // Em PWA wrapped (Android), o botao back default sai do app.
+  // Interceptamos pra fazer fluxo natural:
+  //   PLAY  -> pausa
+  //   PAUSE -> menu
+  //   DEAD  -> menu
+  //   MENU  -> toast "toque novamente pra sair" (2s) -> sai
+  // Implementado via history.pushState + popstate listener.
+  let _backArmed = false;
+  let _backArmedT = 0;
+  const BACK_EXIT_WINDOW_MS = 2000;
+
+  function _pushHistoryGuard(){
+    try {
+      history.pushState({ orbita: 'guard', t: Date.now() }, '');
+    } catch(e) {}
+  }
+
+  function _setupBackHandler(){
+    if (typeof window === 'undefined' || !window.addEventListener) return;
+    if (typeof history === 'undefined' || !history.pushState) return;
+
+    // Guarda inicial pra primeira back nao sair imediatamente
+    _pushHistoryGuard();
+
+    window.addEventListener('popstate', function(){
+      // popstate disparou = usuario pressionou back
+      try {
+        if (typeof state === 'undefined' || typeof ST === 'undefined') {
+          _pushHistoryGuard();
+          return;
+        }
+
+        if (state === ST.PLAY) {
+          // Pausa o jogo
+          state = ST.PAUSE;
+          if (typeof setMusicVolume === 'function') setMusicVolume(0.05);
+          _backArmed = false;
+          if (typeof _crumb === 'function') _crumb('navigation', 'back: play -> pause');
+          _pushHistoryGuard();
+          return;
+        }
+
+        if (state === ST.PAUSE) {
+          // Pause -> menu
+          state = ST.MENU;
+          if (typeof menuScreen !== 'undefined') menuScreen = 'main';
+          if (typeof zenMode !== 'undefined') zenMode = false;
+          if (typeof testMode !== 'undefined') testMode = false;
+          if (typeof setMusicVolume === 'function') setMusicVolume(0.45);
+          _backArmed = false;
+          if (typeof _crumb === 'function') _crumb('navigation', 'back: pause -> menu');
+          _pushHistoryGuard();
+          return;
+        }
+
+        if (state === ST.DEAD) {
+          // Dead -> menu
+          state = ST.MENU;
+          if (typeof menuScreen !== 'undefined') menuScreen = 'main';
+          if (typeof zenMode !== 'undefined') zenMode = false;
+          if (typeof testMode !== 'undefined') testMode = false;
+          if (typeof pendingUnlocks !== 'undefined') pendingUnlocks = [];
+          if (typeof setMusicVolume === 'function') setMusicVolume(0.45);
+          _backArmed = false;
+          if (typeof _crumb === 'function') _crumb('navigation', 'back: dead -> menu');
+          _pushHistoryGuard();
+          return;
+        }
+
+        if (state === ST.MENU) {
+          const now = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+          if (_backArmed && (now - _backArmedT) < BACK_EXIT_WINDOW_MS) {
+            // 2a back dentro da janela = confirma saida
+            _backArmed = false;
+            if (typeof _crumb === 'function') _crumb('navigation', 'back: exit confirmed');
+            // Tenta voltar mais um na historia. Em PWA Android, isso fecha o app.
+            // Em browser puro, fica no [page] inicial sem efeito (aceitavel).
+            try { history.back(); } catch(e) {}
+            return;
+          }
+          // 1a back: arma o estado de "tap-to-exit" + toast visual
+          _backArmed = true;
+          _backArmedT = now;
+          if (typeof _crumb === 'function') _crumb('navigation', 'back: armed exit');
+          _pushHistoryGuard();
+          return;
+        }
+
+        // Fallback: garante que nao sai sem querer
+        _pushHistoryGuard();
+      } catch(e) {
+        try { _pushHistoryGuard(); } catch(_) {}
+      }
+    });
+  }
+
+  // Roda quando o DOM ja estiver pronto pra evitar race com main.js
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    _setupBackHandler();
+  } else {
+    window.addEventListener('DOMContentLoaded', _setupBackHandler, { once: true });
+  }
+
+  // ---------- SENTRY BREADCRUMBS ----------
+  // Helper que cai em no-op se Sentry nao estiver carregado.
+  // Adiciona contexto temporal pra debugar crashes.
+  function _crumb(category, message, data){
+    try {
+      if (typeof Sentry === 'undefined' || !Sentry.addBreadcrumb) return;
+      Sentry.addBreadcrumb({
+        category: category || 'orbita',
+        message: message || '',
+        level: 'info',
+        data: data || undefined,
+        timestamp: Date.now() / 1000
+      });
+    } catch(e) {}
+  }
+
+  // ---------- OVERRIDE drawPauseScreenModule com i18n ----------
+  // Substitui a tela de pause original pra traduzir labels.
+  if (typeof window !== 'undefined') {
+    window.drawPauseScreenModule = function(){
+      if (typeof menuBtnAreas !== 'undefined') menuBtnAreas = [];
+      // Dim overlay
+      X.globalAlpha = 0.65;
+      X.fillStyle = '#000';
+      X.fillRect(-10, -10, W + 20, H + 20);
+      X.globalAlpha = 1;
+
+      X.textAlign = 'center';
+      X.textBaseline = 'middle';
+
+      // Tamanhos responsivos
+      const titleSize  = Math.max(34, Math.min(48, W * 0.12));
+      const labelSize  = Math.max(12, Math.min(14, W * 0.036));
+      const scoreSize  = Math.max(32, Math.min(42, W * 0.105));
+
+      // Title
+      X.shadowColor = '#b0b0ff';
+      X.shadowBlur = 20;
+      X.fillStyle = '#e0e0ff';
+      X.font = 'bold ' + titleSize + 'px -apple-system, system-ui, sans-serif';
+      X.fillText(_t('paused'), W/2, H * 0.30);
+      X.shadowBlur = 0;
+
+      // Current score label + value
+      X.fillStyle = 'rgba(255,255,255,0.5)';
+      X.font = labelSize + 'px -apple-system, system-ui, sans-serif';
+      X.fillText(_t('current_score'), W/2, H * 0.40);
+      X.fillStyle = '#fff';
+      X.font = 'bold ' + scoreSize + 'px -apple-system, system-ui, sans-serif';
+      X.fillText(String(typeof score === 'number' ? score : 0), W/2, H * 0.46);
+
+      // Botoes
+      const btnW = Math.min(W * 0.7, 260);
+      const btnH = 48;
+      const btnX = (W - btnW) / 2;
+
+      if (typeof drawActionBtn === 'function') {
+        drawActionBtn(btnX, H * 0.58, btnW, btnH, _t('continue_btn'), '#00f5d4', true, function(){
+          state = ST.PLAY;
+          if (typeof setMusicVolume === 'function') setMusicVolume(0.95);
+        });
+
+        drawActionBtn(btnX, H * 0.58 + btnH + 12, btnW, btnH, _t('main_menu'), '#ff6b9d', false, function(){
+          if (typeof zenMode !== 'undefined') zenMode = false;
+          if (typeof testMode !== 'undefined') testMode = false;
+          state = ST.MENU;
+          if (typeof menuScreen !== 'undefined') menuScreen = 'main';
+          if (typeof setMusicVolume === 'function') setMusicVolume(0.80);
+        });
+      }
+    };
+  }
+
+  // ---------- WRAP addScorePopup pra traduzir strings PT do game.js ----------
+  // game.js emite "OURO!", "COMBO N!", "MISSÃO!", "SEM ERRO" hardcoded.
+  // Interceptamos pra traduzir conforme o idioma atual.
+  // (precisa rodar antes do helper _t mas referencia OrbitaI18n direto)
+  if (typeof window !== 'undefined' && typeof window.addScorePopup === 'function') {
+    const _origAddScorePopup = window.addScorePopup;
+    window.addScorePopup = function(x, y, text, color){
+      try {
+        if (typeof text === 'string' && window.OrbitaI18n) {
+          const T = window.OrbitaI18n.t;
+          if (text === 'OURO!') {
+            text = T('gold_popup');
+          } else if (text === 'SEM ERRO') {
+            text = T('test_no_error_popup');
+          } else if (text === 'MISSÃO!') {
+            text = T('mission_popup');
+          } else if (text.indexOf('COMBO ') === 0 && text.endsWith('!')) {
+            const m = text.match(/^COMBO (\d+)!$/);
+            if (m) text = T('combo_popup', { n: parseInt(m[1], 10) });
+          }
+        }
+      } catch(e) {}
+      return _origAddScorePopup.call(this, x, y, text, color);
+    };
+  }
+
+  // ---------- I18N HELPERS ----------
+  // Atalhos pra OrbitaI18n carregado em js/i18n.js. Cai em fallback
+  // PT-BR hardcoded se i18n.js nao tiver carregado por algum motivo.
+  function _t(key, params){
+    if (window.OrbitaI18n && typeof window.OrbitaI18n.t === 'function') {
+      return window.OrbitaI18n.t(key, params);
+    }
+    return key;
+  }
+  function _lang(){
+    if (window.OrbitaI18n && typeof window.OrbitaI18n.currentLang === 'function') {
+      return window.OrbitaI18n.currentLang();
+    }
+    return 'pt';
+  }
+  function _cycleLang(){
+    if (window.OrbitaI18n && typeof window.OrbitaI18n.cycleLang === 'function') {
+      return window.OrbitaI18n.cycleLang();
+    }
+    return 'pt';
+  }
+
+  // ---------- HIDE SPLASH ----------
+  // O splash em index.html cobre a tela enquanto Supabase SDK + scripts
+  // carregam. Quando este patch executa, tudo critico ja foi parseado.
+  // Esperamos a tela renderizar pelo menos 1 frame antes de esconder
+  // pra garantir que nao tem flash de tela vazia.
+  function _hideSplash(){
+    const el = document.getElementById('orbita-splash');
+    if (!el) return;
+    el.classList.add('hidden');
+    // Remove do DOM apos a transicao de fade pra liberar memoria
+    setTimeout(function(){
+      if (el.parentNode) el.parentNode.removeChild(el);
+    }, 600);
+  }
+  // Espera ao menos 2 frames de render + 150ms pra garantir que
+  // o canvas ja desenhou algo (main.js inicia o loop apos o patch)
+  function _scheduleSplashHide(){
+    requestAnimationFrame(function(){
+      requestAnimationFrame(function(){
+        setTimeout(_hideSplash, 150);
+      });
+    });
+  }
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    _scheduleSplashHide();
+  } else {
+    window.addEventListener('load', _scheduleSplashHide, { once: true });
+  }
+
   // ---------- TUNING ----------
   // Multiplicador da velocidade de orbita. Afeta a velocidade do
   // salto (orbitSpeed * raio * 2.2). Valores recomendados:
@@ -18,9 +272,9 @@
   //   1.85+ = praticamente impossivel
   const SPEED_MULTIPLIER = 1.50;
 
-  // Probabilidade de bonus aleatorio em cada captura (variable ratio).
-  const JACKPOT_CHANCE = 0.04;  // 4% = 5x pontos
-  const LUCKY_CHANCE   = 0.11;  // 11% = 2x pontos (somado ao jackpot da bottom-up = total 15%)
+  // Probabilidade de bonus aleatorio em cada captura (recompensa imprevisivel).
+  const MEGA_BONUS_CHANCE = 0.04;  // 4% = 5x pontos
+  const LUCKY_CHANCE      = 0.11;  // 11% = 2x pontos (total 15% de eventos com bonus)
 
   // Limite do near-miss: distancia da bola ao centro do no nao
   // capturado em fracao do captureR. <= 0.7x = era pra ter pegado.
@@ -29,7 +283,7 @@
   // Estado psicologico da run atual (resetado em cada startRun).
   let _nearMissData = null;       // {nodeX, nodeY, captureR, ballX, ballY, tier, distance}
   let _captureFlashT = 0;          // 0..1 - flash branco curto em capturas
-  let _lastBonusType = null;       // 'jackpot' | 'lucky' | null - ultimo bonus pra som ascendente
+  let _lastBonusType = null;       // 'mega' | 'lucky' | null - ultimo bonus pra som ascendente
 
   // Analytics (retencao). Persistido em localStorage.
   let _runStartT = 0;
@@ -44,6 +298,41 @@
   // Estado pro menu inicial
   let _menuStars = null;          // gerado uma vez, persiste
   let _menuDayStreak = 1;
+
+  // Modo debug (sem morte). Persistido em localStorage pra sobreviver reload.
+  let _debugMode = false;
+  try {
+    _debugMode = localStorage.getItem('orbita_debug_mode') === '1';
+  } catch(e) {}
+  function _toggleDebug(){
+    _debugMode = !_debugMode;
+    try { localStorage.setItem('orbita_debug_mode', _debugMode ? '1' : '0'); } catch(e) {}
+  }
+
+  // Modo daltonismo: adiciona marcadores de forma sobre cada no
+  // pra que jogadores com deficiencia de cor distingam os tiers.
+  // Verde=sem marca (default), Azul=triangulo, Vermelho=X, Dourado=estrela.
+  let _colorBlindMode = false;
+  try {
+    _colorBlindMode = localStorage.getItem('orbita_colorblind') === '1';
+  } catch(e) {}
+  function _toggleColorBlind(){
+    _colorBlindMode = !_colorBlindMode;
+    try { localStorage.setItem('orbita_colorblind', _colorBlindMode ? '1' : '0'); } catch(e) {}
+  }
+
+  // ---------- ONBOARDING ----------
+  // Primeiras 3 partidas tem dificuldade gradual e a 1a tem hint
+  // visual de "TOQUE PARA SOLTAR" pra novos jogadores nao se assustarem.
+  // Sem isso, ~80% dos novos jogadores desinstalam apos morrer
+  // em 2 segundos no phase 6 brutal.
+  function _isOnboarding(){
+    if (typeof zenMode !== 'undefined' && zenMode) return false;
+    if (typeof testMode !== 'undefined' && testMode) return false;
+    return (typeof totalGames === 'number') && totalGames < 3;
+  }
+  let _tapHintVisible = false;
+  let _hasReleasedThisRun = false;
 
   // ---------- ANTI-CHEAT ----------
   // 3 camadas: (1) assinatura no save vs localStorage editor,
@@ -261,61 +550,360 @@
     ],
   };
 
-  function _pickContextualPhrase(){
-    const sc = (typeof score === 'number') ? score : 0;
-    const bs = (typeof best === 'number') ? best : 0;
-    const isNewRec = (typeof newRec !== 'undefined' && !!newRec);
-    const gap = bs - sc;
-    const hadNearMiss = !!_nearMissData;
-    const dur = _runDurationS || 0;
-    const combo = _runMaxCombo || 0;
+  // Pool extra de 500 frases motivacionais/contemplativas. Vai pro
+  // bucket "generic" apos dedup contra todos os outros buckets.
+  const _EXTRA_PHRASES = [
+    'Não é speedrun.','Vai no seu tempo.','O jogo continua.','Mais uma tentativa.',
+    'Respira e tenta de novo.','Você consegue passar.','Calma no controle.',
+    'Foco na próxima jogada.','Não desiste agora.','Aprende o padrão.',
+    'Volta mais esperto.','Cada erro ensina.','Você está evoluindo.','Segue o mapa.',
+    'Olha o timing.','Vai com calma.','Confia no progresso.','Não pula etapa.',
+    'Treina mais um pouco.','Quase lá.','Você chegou longe.','Continua firme.',
+    'Um passo por vez.','Hoje passa.','Não precisa correr.','Joga com cabeça.',
+    'Fica atento.','O detalhe decide.','Você já melhorou.','A próxima é sua.',
+    'Sem pressa.','Sem pânico.','Só joga.','Recomeçar também conta.',
+    'Você aprendeu algo.','Agora ajusta.','Tenta diferente.','Olha melhor.',
+    'Mira melhor.','Espera o momento.','Vai no ritmo.','Não força errado.',
+    'Escolhe bem.','Usa a estratégia.','Você tem chance.','A fase é treinável.',
+    'O chefe tem padrão.','Leia o movimento.','Não entra no desespero.',
+    'Você está perto.','Falta pouco.','Mais controle.','Menos impulso.',
+    'Joga inteligente.','Avança com calma.','Boa tentativa.','Agora melhora.',
+    'Você pode virar.','Não acabou.','Continua jogando.','Experiência também vale.',
+    'Cada rodada conta.','Você pegou XP.','Subiu um pouco.','Fica no foco.',
+    'Olha o próximo passo.','Não olha só o erro.','Aprende e segue.','Ajusta a rota.',
+    'Volta para a missão.','Você sabe o que fazer.','Não complica.',
+    'Faz o simples bem feito.','O básico vence.','Capricha no timing.',
+    'Capricha na mira.','Capricha na defesa.','Joga leve.','Mas joga sério.',
+    'Você está melhorando.','A fase não é impossível.','Só precisa prática.',
+    'Prática muda tudo.','Mais uma run.','Mais uma chance.','Mais um avanço.',
+    'Continua no controle.','Não entrega fácil.','Vai até o fim.','Termina a fase.',
+    'Pega o ritmo.','Não se afoba.','Você consegue adaptar.','Troca a estratégia.',
+    'Tenta outro caminho.','Usa o que aprendeu.','Volta mais preparado.',
+    'O mapa ajuda quem observa.','Observa antes de agir.','Ataca na hora certa.',
+    'Defende na hora certa.','Pula na hora certa.','Espera abrir espaço.',
+    'Você tem tempo.','Não precisa provar nada.','Só precisa passar.',
+    'A vitória vem com calma.','Foco no objetivo.','Foco no checkpoint.',
+    'Foco na missão.','Você desbloqueia tentando.','Nada melhora parado.',
+    'Movimento gera progresso.','Aprender também é jogar.','Perder faz parte.',
+    'Parar não precisa fazer.','Vai de novo.','Continua aprendendo.',
+    'Você está no caminho.','Não troca foco por pressa.','Pressa erra fácil.',
+    'Calma acerta mais.','Joga no tempo certo.','O controle é seu.',
+    'A decisão é sua.','A próxima jogada importa.','Não desperdiça a chance.',
+    'Você consegue acertar.','Você consegue defender.','Você consegue escapar.',
+    'Você consegue vencer.','Não ignora o padrão.','O inimigo repete.',
+    'Você aprende.','Você supera.','Fase difícil também passa.',
+    'Boss difícil também cai.','Checkpoint existe por um motivo.','Use a tentativa.',
+    'Use a falha.','Use o treino.','Não foi inútil.','Foi aprendizado.',
+    'Agora vai melhor.','Joga com atenção.','Cuida da energia.','Cuida do tempo.',
+    'Cuida do movimento.','Não gasta tudo cedo.','Guarda recurso.',
+    'Escolhe a hora.','Faz valer.','Não corre sem olhar.','Não ataca sem pensar.',
+    'Não pula sem medir.','Timing é tudo.','Leitura é tudo.','Controle é tudo.',
+    'Você não precisa ser perfeito.','Precisa continuar.','Continua até encaixar.',
+    'Quando encaixa, passa.','O começo é estranho.','Depois vira hábito.',
+    'Depois vira domínio.','Treina até ficar natural.','Você aprende rápido.',
+    'Mas precisa tentar.','Não fica no menu.','Entra na fase.',
+    'A fase ensina jogando.','Você só melhora jogando.','Mais jogo, mais leitura.',
+    'Mais leitura, menos erro.','Menos erro, mais vitória.','Simples assim.',
+    'Não inventa desculpa.','Inventa estratégia.','Se travou, muda.',
+    'Se errou, ajusta.','Se caiu, volta.','Se passou, continua.','Próxima fase.',
+    'Próximo desafio.','Próxima melhoria.','Você está construindo habilidade.',
+    'Habilidade vem de repetição.','Repetição vira confiança.',
+    'Confiança vem depois.','Primeiro vem treino.','Hoje é treino.',
+    'Amanhã é domínio.','Não pula o processo.','O processo salva.',
+    'Segue treinando.','Segue tentando.','Segue melhorando.',
+    'Não precisa ser bonito.','Precisa funcionar.','Funciona melhor com calma.',
+    'Calma não é lentidão.','Calma é precisão.','Precisão vence correria.',
+    'Você sabe disso.','Então joga melhor.',
+    'Não é speedrun, sem pressa.','Não é speedrun, com foco.',
+    'Não é speedrun, com calma.','Não é speedrun, com controle.',
+    'Não é speedrun, com atenção.','Não é speedrun, com estratégia.',
+    'Não é speedrun, no timing certo.','Não é speedrun, sem pânico.',
+    'Não é speedrun, sem desistir.','Não é speedrun, até o checkpoint.',
+    'Não é speedrun, até passar.','Não é speedrun, mais uma vez.',
+    'Não é speedrun, do jeito certo.','Não é speedrun, observando melhor.',
+    'Não é speedrun, corrigindo o erro.','Não é speedrun, usando o que aprendeu.',
+    'Não é speedrun, sem forçar.','Não é speedrun, com paciência.',
+    'Não é speedrun, com leitura.','Não é speedrun, no ritmo da fase.',
+    'Vai no seu tempo, sem pressa.','Vai no seu tempo, com foco.',
+    'Vai no seu tempo, com calma.','Vai no seu tempo, com controle.',
+    'Vai no seu tempo, com atenção.','Vai no seu tempo, com estratégia.',
+    'Vai no seu tempo, no timing certo.','Vai no seu tempo, sem pânico.',
+    'Vai no seu tempo, sem desistir.','Vai no seu tempo, até o checkpoint.',
+    'Vai no seu tempo, até passar.','Vai no seu tempo, mais uma vez.',
+    'Vai no seu tempo, do jeito certo.','Vai no seu tempo, observando melhor.',
+    'Vai no seu tempo, corrigindo o erro.','Vai no seu tempo, usando o que aprendeu.',
+    'Vai no seu tempo, sem forçar.','Vai no seu tempo, com paciência.',
+    'Vai no seu tempo, com leitura.','Vai no seu tempo, no ritmo da fase.',
+    'O jogo continua, sem pressa.','O jogo continua, com foco.',
+    'O jogo continua, com calma.','O jogo continua, com controle.',
+    'O jogo continua, com atenção.','O jogo continua, com estratégia.',
+    'O jogo continua, no timing certo.','O jogo continua, sem pânico.',
+    'O jogo continua, sem desistir.','O jogo continua, até o checkpoint.',
+    'O jogo continua, até passar.','O jogo continua, mais uma vez.',
+    'O jogo continua, do jeito certo.','O jogo continua, observando melhor.',
+    'O jogo continua, corrigindo o erro.','O jogo continua, usando o que aprendeu.',
+    'O jogo continua, sem forçar.','O jogo continua, com paciência.',
+    'O jogo continua, com leitura.','O jogo continua, no ritmo da fase.',
+    'Mais uma tentativa, sem pressa.','Mais uma tentativa, com foco.',
+    'Mais uma tentativa, com calma.','Mais uma tentativa, com controle.',
+    'Mais uma tentativa, com atenção.','Mais uma tentativa, com estratégia.',
+    'Mais uma tentativa, no timing certo.','Mais uma tentativa, sem pânico.',
+    'Mais uma tentativa, sem desistir.','Mais uma tentativa, até o checkpoint.',
+    'Mais uma tentativa, até passar.','Mais uma tentativa, mais uma vez.',
+    'Mais uma tentativa, do jeito certo.','Mais uma tentativa, observando melhor.',
+    'Mais uma tentativa, corrigindo o erro.','Mais uma tentativa, usando o que aprendeu.',
+    'Mais uma tentativa, sem forçar.','Mais uma tentativa, com paciência.',
+    'Mais uma tentativa, com leitura.','Mais uma tentativa, no ritmo da fase.',
+    'Respira e tenta de novo, sem pressa.','Respira e tenta de novo, com foco.',
+    'Respira e tenta de novo, com calma.','Respira e tenta de novo, com controle.',
+    'Respira e tenta de novo, com atenção.','Respira e tenta de novo, com estratégia.',
+    'Respira e tenta de novo, no timing certo.','Respira e tenta de novo, sem pânico.',
+    'Respira e tenta de novo, sem desistir.','Respira e tenta de novo, até o checkpoint.',
+    'Respira e tenta de novo, até passar.','Respira e tenta de novo, mais uma vez.',
+    'Respira e tenta de novo, do jeito certo.','Respira e tenta de novo, observando melhor.',
+    'Respira e tenta de novo, corrigindo o erro.','Respira e tenta de novo, usando o que aprendeu.',
+    'Respira e tenta de novo, sem forçar.','Respira e tenta de novo, com paciência.',
+    'Respira e tenta de novo, com leitura.','Respira e tenta de novo, no ritmo da fase.',
+    'Você consegue passar, sem pressa.','Você consegue passar, com foco.',
+    'Você consegue passar, com calma.','Você consegue passar, com controle.',
+    'Você consegue passar, com atenção.','Você consegue passar, com estratégia.',
+    'Você consegue passar, no timing certo.','Você consegue passar, sem pânico.',
+    'Você consegue passar, sem desistir.','Você consegue passar, até o checkpoint.',
+    'Você consegue passar, até passar.','Você consegue passar, mais uma vez.',
+    'Você consegue passar, do jeito certo.','Você consegue passar, observando melhor.',
+    'Você consegue passar, corrigindo o erro.','Você consegue passar, usando o que aprendeu.',
+    'Você consegue passar, sem forçar.','Você consegue passar, com paciência.',
+    'Você consegue passar, com leitura.','Você consegue passar, no ritmo da fase.',
+    'Calma no controle, sem pressa.','Calma no controle, com foco.',
+    'Calma no controle, com calma.','Calma no controle, com controle.',
+    'Calma no controle, com atenção.','Calma no controle, com estratégia.',
+    'Calma no controle, no timing certo.','Calma no controle, sem pânico.',
+    'Calma no controle, sem desistir.','Calma no controle, até o checkpoint.',
+    'Calma no controle, até passar.','Calma no controle, mais uma vez.',
+    'Calma no controle, do jeito certo.','Calma no controle, observando melhor.',
+    'Calma no controle, corrigindo o erro.','Calma no controle, usando o que aprendeu.',
+    'Calma no controle, sem forçar.','Calma no controle, com paciência.',
+    'Calma no controle, com leitura.','Calma no controle, no ritmo da fase.',
+    'Foco na próxima jogada, sem pressa.','Foco na próxima jogada, com foco.',
+    'Foco na próxima jogada, com calma.','Foco na próxima jogada, com controle.',
+    'Foco na próxima jogada, com atenção.','Foco na próxima jogada, com estratégia.',
+    'Foco na próxima jogada, no timing certo.','Foco na próxima jogada, sem pânico.',
+    'Foco na próxima jogada, sem desistir.','Foco na próxima jogada, até o checkpoint.',
+    'Foco na próxima jogada, até passar.','Foco na próxima jogada, mais uma vez.',
+    'Foco na próxima jogada, do jeito certo.','Foco na próxima jogada, observando melhor.',
+    'Foco na próxima jogada, corrigindo o erro.','Foco na próxima jogada, usando o que aprendeu.',
+    'Foco na próxima jogada, sem forçar.','Foco na próxima jogada, com paciência.',
+    'Foco na próxima jogada, com leitura.','Foco na próxima jogada, no ritmo da fase.',
+    'Não desiste agora, sem pressa.','Não desiste agora, com foco.',
+    'Não desiste agora, com calma.','Não desiste agora, com controle.',
+    'Não desiste agora, com atenção.','Não desiste agora, com estratégia.',
+    'Não desiste agora, no timing certo.','Não desiste agora, sem pânico.',
+    'Não desiste agora, sem desistir.','Não desiste agora, até o checkpoint.',
+    'Não desiste agora, até passar.','Não desiste agora, mais uma vez.',
+    'Não desiste agora, do jeito certo.','Não desiste agora, observando melhor.',
+    'Não desiste agora, corrigindo o erro.','Não desiste agora, usando o que aprendeu.',
+    'Não desiste agora, sem forçar.','Não desiste agora, com paciência.',
+    'Não desiste agora, com leitura.','Não desiste agora, no ritmo da fase.',
+    'Aprende o padrão, sem pressa.','Aprende o padrão, com foco.',
+    'Aprende o padrão, com calma.','Aprende o padrão, com controle.',
+    'Aprende o padrão, com atenção.','Aprende o padrão, com estratégia.',
+    'Aprende o padrão, no timing certo.','Aprende o padrão, sem pânico.',
+    'Aprende o padrão, sem desistir.','Aprende o padrão, até o checkpoint.',
+    'Aprende o padrão, até passar.','Aprende o padrão, mais uma vez.',
+    'Aprende o padrão, do jeito certo.','Aprende o padrão, observando melhor.',
+    'Aprende o padrão, corrigindo o erro.','Aprende o padrão, usando o que aprendeu.',
+    'Aprende o padrão, sem forçar.','Aprende o padrão, com paciência.',
+    'Aprende o padrão, com leitura.','Aprende o padrão, no ritmo da fase.',
+    'Volta mais esperto, sem pressa.','Volta mais esperto, com foco.',
+    'Volta mais esperto, com calma.','Volta mais esperto, com controle.',
+    'Volta mais esperto, com atenção.','Volta mais esperto, com estratégia.',
+    'Volta mais esperto, no timing certo.','Volta mais esperto, sem pânico.',
+    'Volta mais esperto, sem desistir.','Volta mais esperto, até o checkpoint.',
+    'Volta mais esperto, até passar.','Volta mais esperto, mais uma vez.',
+    'Volta mais esperto, do jeito certo.','Volta mais esperto, observando melhor.',
+    'Volta mais esperto, corrigindo o erro.','Volta mais esperto, usando o que aprendeu.',
+    'Volta mais esperto, sem forçar.','Volta mais esperto, com paciência.',
+    'Volta mais esperto, com leitura.','Volta mais esperto, no ritmo da fase.',
+    'Cada erro ensina, sem pressa.','Cada erro ensina, com foco.',
+    'Cada erro ensina, com calma.','Cada erro ensina, com controle.',
+    'Cada erro ensina, com atenção.','Cada erro ensina, com estratégia.',
+    'Cada erro ensina, no timing certo.','Cada erro ensina, sem pânico.',
+    'Cada erro ensina, sem desistir.','Cada erro ensina, até o checkpoint.',
+    'Cada erro ensina, até passar.','Cada erro ensina, mais uma vez.',
+    'Cada erro ensina, do jeito certo.','Cada erro ensina, observando melhor.',
+    'Cada erro ensina, corrigindo o erro.','Cada erro ensina, usando o que aprendeu.',
+    'Cada erro ensina, sem forçar.','Cada erro ensina, com paciência.',
+    'Cada erro ensina, com leitura.','Cada erro ensina, no ritmo da fase.',
+    'Você está evoluindo, sem pressa.','Você está evoluindo, com foco.',
+    'Você está evoluindo, com calma.','Você está evoluindo, com controle.',
+    'Você está evoluindo, com atenção.','Você está evoluindo, com estratégia.',
+    'Você está evoluindo, no timing certo.','Você está evoluindo, sem pânico.',
+    'Você está evoluindo, sem desistir.','Você está evoluindo, até o checkpoint.',
+    'Você está evoluindo, até passar.','Você está evoluindo, mais uma vez.',
+    'Você está evoluindo, do jeito certo.','Você está evoluindo, observando melhor.',
+    'Você está evoluindo, corrigindo o erro.','Você está evoluindo, usando o que aprendeu.',
+    'Você está evoluindo, sem forçar.','Você está evoluindo, com paciência.',
+    'Você está evoluindo, com leitura.','Você está evoluindo, no ritmo da fase.',
+    'Segue o mapa, sem pressa.','Segue o mapa, com foco.',
+    'Segue o mapa, com calma.','Segue o mapa, com controle.',
+    'Segue o mapa, com atenção.','Segue o mapa, com estratégia.',
+    'Segue o mapa, no timing certo.','Segue o mapa, sem pânico.',
+    'Segue o mapa, sem desistir.','Segue o mapa, até o checkpoint.',
+    'Segue o mapa, até passar.','Segue o mapa, mais uma vez.',
+    'Segue o mapa, do jeito certo.','Segue o mapa, observando melhor.',
+    'Segue o mapa, corrigindo o erro.','Segue o mapa, usando o que aprendeu.',
+    'Segue o mapa, sem forçar.','Segue o mapa, com paciência.',
+    'Segue o mapa, com leitura.','Segue o mapa, no ritmo da fase.',
+    'Olha o timing, sem pressa.','Olha o timing, com foco.',
+    'Olha o timing, com calma.','Olha o timing, com controle.',
+    'Olha o timing, com atenção.','Olha o timing, com estratégia.',
+    'Olha o timing, no timing certo.','Olha o timing, sem pânico.',
+    'Olha o timing, sem desistir.','Olha o timing, até o checkpoint.',
+    'Olha o timing, até passar.','Olha o timing, mais uma vez.',
+    'Olha o timing, do jeito certo.','Olha o timing, observando melhor.',
+    'Olha o timing, corrigindo o erro.'
+  ];
 
-    // Ordem de prioridade
+  // Dedup runtime: junta no generic apenas o que ainda nao existe
+  // em NENHUM bucket (inclui o proprio generic).
+  (function _mergePhrases(){
+    const seen = new Set();
+    for (const k in _PHRASE_BUCKETS) {
+      for (const p of _PHRASE_BUCKETS[k]) seen.add(p);
+    }
+    let added = 0;
+    for (const p of _EXTRA_PHRASES) {
+      if (!seen.has(p)) {
+        _PHRASE_BUCKETS.generic.push(p);
+        seen.add(p);
+        added++;
+      }
+    }
+    // console.log('[orbita] frases extras adicionadas:', added);
+  })();
+
+  function _pickContextualPhrase(){
+    const ctx = {
+      score: (typeof score === 'number') ? score : 0,
+      best: (typeof best === 'number') ? best : 0,
+      newRec: (typeof newRec !== 'undefined' && !!newRec),
+      nearMiss: !!_nearMissData,
+      duration: _runDurationS || 0,
+      combo: _runMaxCombo || 0,
+    };
+    // Delega ao i18n se disponivel (multi-idioma)
+    if (window.OrbitaI18n && typeof window.OrbitaI18n.pickContextualPhrase === 'function') {
+      const p = window.OrbitaI18n.pickContextualPhrase(ctx);
+      if (p) return p;
+    }
+    // Fallback: usa o _PHRASE_BUCKETS local em PT
+    const sc = ctx.score, bs = ctx.best, gap = bs - sc;
     let bucket = 'generic';
-    if (isNewRec)                                 bucket = 'new_record';
+    if (ctx.newRec)                               bucket = 'new_record';
     else if (bs > 0 && gap >= 1 && gap <= 3)      bucket = 'near_record';
-    else if (hadNearMiss)                         bucket = 'near_miss';
+    else if (ctx.nearMiss)                        bucket = 'near_miss';
     else if (sc === 0)                            bucket = 'first_death';
     else if (sc <= 4)                             bucket = 'early_death';
-    else if (combo >= 5)                          bucket = 'combo_end';
-    else if (dur >= 30)                           bucket = 'long_run';
-    else if (dur > 0 && dur < 5)                  bucket = 'short_run';
-
+    else if (ctx.combo >= 5)                      bucket = 'combo_end';
+    else if (ctx.duration >= 30)                  bucket = 'long_run';
+    else if (ctx.duration > 0 && ctx.duration < 5) bucket = 'short_run';
     const list = _PHRASE_BUCKETS[bucket] || _PHRASE_BUCKETS.generic;
     return list[Math.floor(Math.random() * list.length)];
   }
 
-  // ---------- 1. DIFICULDADE BRUTAL: fase 6 desde o cano 1 ----------
-  // Sobrescreve getPhase global preservando comportamento do zen.
+  // ---------- 1. DIFICULDADE: fase 6 brutal apos 3 partidas ----------
+  // Onboarding: rampa gradual nas primeiras 3 partidas pra reter
+  // novos jogadores. Da partida 4 em diante, phase 6 puro.
   if (typeof window.getPhase === 'function') {
     window.getPhase = function(){
       if (typeof zenMode !== 'undefined' && zenMode) return 1;
-      return 6;
+      // Rampa pras 3 primeiras partidas (totalGames eh incrementado em die())
+      if (typeof totalGames === 'number') {
+        if (totalGames === 0) return 1;  // 1a partida: gentil
+        if (totalGames === 1) return 3;  // 2a: media
+        if (totalGames === 2) return 5;  // 3a: pesada
+      }
+      return 6;  // 4a+: chaos
     };
   }
 
-  // Aplica o multiplicador de velocidade via hook oficial.
+  // Aplica multiplicador de velocidade com curva customizada:
+  //  - Score 0-99:   crescimento normal (3.0 + sc*0.05) * 1.5
+  //  - Score 100+:   reduz a taxa de crescimento pra ~30% (gameplay
+  //                  jogavel em scores altos sem virar impossivel)
+  //  - Onboarding (3 primeiras partidas): velocidade reduzida pra
+  //                  o jogador aprender a mecanica
   if (typeof registerOrbitaGameplayHook === 'function') {
     registerOrbitaGameplayHook('adjustOrbitSpeed', function(payload){
       if (!payload) return payload;
       if (typeof zenMode !== 'undefined' && zenMode) return payload;
-      const v = Number(payload.value);
-      if (!Number.isFinite(v)) return payload;
-      return { value: v * SPEED_MULTIPLIER };
+      const sc = (typeof score === 'number') ? score : 0;
+      let baseValue;
+      if (sc <= 100) {
+        baseValue = 3.0 + sc * 0.05;            // 3.0 -> 8.0
+      } else {
+        baseValue = 8.0 + (sc - 100) * 0.015;   // 8.0 -> 11.0 em sc=300
+      }
+      // Multiplicador reduzido durante onboarding (1a-3a partida)
+      let mult = SPEED_MULTIPLIER;
+      if (_isOnboarding()) {
+        const tg = (typeof totalGames === 'number') ? totalGames : 0;
+        if (tg === 0)      mult = 0.85;  // 1a: bem lenta, da pra aprender
+        else if (tg === 1) mult = 1.05;  // 2a: media
+        else if (tg === 2) mult = 1.25;  // 3a: quase normal
+      }
+      return { value: baseValue * mult };
     });
   }
 
-  // ---------- BACKGROUND: Espaco Profundo ----------
-  // Sobrescreve o gradiente do bg pra um navy/black bem escuro
-  // que (a) nao conflita com o no vermelho, (b) faz as 4 cores dos
-  // nos pular da tela, (c) deixa os meteoros (cinza #5a5a6e) bem
-  // visiveis como silhuetas claras.
+  // ---------- BACKGROUND PROGRESSIVO ----------
+  // 5 paletas que mudam conforme o score, todas mantidas escuras o
+  // bastante pra (a) nao conflitar com nos verde/azul/vermelho/dourado,
+  // (b) deixar os meteoros cinza visiveis como silhuetas claras.
+  // Lerp suave entre tiers vizinhos pra transicao continua.
+  // Top/bot ficam em ~10-25/255 (quase preto), mid pode ir ate ~70/255
+  // mas sempre com hue distinta dos nos.
+  const _BG_TIERS = [
+    // 0-19: Espaço profundo (navy)
+    { min:   0, top:'#04060e', mid:'#0c1a36', bot:'#04060e' },
+    // 20-49: Nebulosa violeta
+    { min:  20, top:'#08041a', mid:'#220844', bot:'#08041a' },
+    // 50-99: Aurora teal (azul-esverdeado profundo)
+    { min:  50, top:'#04141a', mid:'#0c3838', bot:'#04141a' },
+    // 100-199: Indigo/violeta profundo (azul-roxo, NAO magenta - pra
+    // nao competir com o no vermelho. Era #480a55 que tinha B=85
+    // similar ao vermelho do no #ff4757)
+    { min: 100, top:'#0a0420', mid:'#1c1060', bot:'#0a0420' },
+    // 200+: Cosmic DOURADO de verdade (amber profundo)
+    { min: 200, top:'#100a04', mid:'#3e2c0a', bot:'#100a04' },
+  ];
+
+  function _bgTierIndex(s){
+    let idx = 0;
+    for (let i = _BG_TIERS.length - 1; i >= 0; i--) {
+      if (s >= _BG_TIERS[i].min) { idx = i; break; }
+    }
+    return idx;
+  }
+
   if (typeof window.getBgColors === 'function') {
     window.getBgColors = function(){
+      // Zen mantem o navy fixo
+      if (typeof zenMode !== 'undefined' && zenMode) {
+        return _BG_TIERS[0];
+      }
+      const sc = (typeof score === 'number') ? score : 0;
+      const i = _bgTierIndex(sc);
+      const cur = _BG_TIERS[i];
+      const next = _BG_TIERS[i + 1] || cur;
+      const range = next.min - cur.min;
+      const progress = range > 0 ? Math.min(Math.max((sc - cur.min) / range, 0), 1) : 0;
+      // lerpColor existe em core.js
+      if (typeof lerpColor !== 'function') return cur;
       return {
-        top: '#04060e',
-        mid: '#0c1a36',
-        bot: '#04060e'
+        top: lerpColor(cur.top, next.top, progress),
+        mid: lerpColor(cur.mid, next.mid, progress),
+        bot: lerpColor(cur.bot, next.bot, progress),
       };
     };
   }
@@ -440,7 +1028,7 @@
   _menuStars = _genMenuStars();
 
   // Brilho leve nos meteoros pra garantir contraste mesmo em
-  // momentos de flash branco (recorde, jackpot).
+  // momentos de flash branco (recorde, mega bonus).
   if (typeof window.drawAsteroid === 'function') {
     const _origDrawAst = window.drawAsteroid;
     window.drawAsteroid = function(a, ax, ay){
@@ -574,43 +1162,52 @@
       _currentSpawnSiblings = [];
 
       const out = [];
-      // Pequenas variacoes em cada angulo pra cada partida nao ser igual
-      out.push(window.placeBranch(fromNode, 'easy',   -1.85 + (Math.random()-0.5)*0.30));  // verde
-      out.push(window.placeBranch(fromNode, 'hard',   -0.55 + (Math.random()-0.5)*0.30));  // vermelho
-      // Dourado: angulo quase reto pra cima (era 0.20 -> agora 0.08)
-      const goldBranch = window.placeBranch(fromNode, 'gold', 0.08 + (Math.random()-0.5)*0.18);
-      // Boost vertical pra subir mais ainda na tela
-      const upBoost = Math.min(90, H * 0.09);
-      const minY = fromNode.y - H * 0.45;  // limite superior do retangulo seguro
-      goldBranch.y = Math.max(minY, goldBranch.y - upBoost);
-      goldBranch.baseY = goldBranch.y;
-      out.push(goldBranch);
-      out.push(window.placeBranch(fromNode, 'medium',  1.40 + (Math.random()-0.5)*0.30));  // azul
+      const rand = function(a, b){ return a + Math.random() * (b - a); };
 
-      // Repor logica de asteroides (skipada pelo handled=true).
-      // Reduzida pra 22% pra nao poluir o leque.
-      const phase = payload.phase || 6;
-      if (phase >= 4 && typeof asteroids !== 'undefined' && Array.isArray(asteroids)) {
-        for (const b of out) {
-          if (!b || b.tier === 'easy') continue;
-          const baseChance = (b.moving || b.disappearing || b.teleporting) ? 0.10 : 0.22;
-          if (Math.random() < baseChance) {
-            const mx = (fromNode.x + b.x) / 2;
-            const my = (fromNode.y + b.y) / 2;
-            const na = Math.random() < 0.8 ? 1 : 2;
-            for (let i = 0; i < na; i++) {
-              asteroids.push({
-                x: mx + (Math.random()-0.5)*80,
-                y: my + (Math.random()-0.5)*80,
-                r: 8 + Math.random()*8,
-                rot: Math.random()*Math.PI*2,
-                rotSpd: (Math.random()-0.5)*4,
-                vertices: (typeof genAsteroidShape === 'function') ? genAsteroidShape() : []
-              });
-            }
+      if (_isOnboarding()) {
+        // Onboarding: phase ramp gradual mas SEM asteroides.
+        // Replicamos a logica de game.js manualmente aqui pra poder
+        // setar handled=true e skipar o bloco de asteroides original.
+        const tg = (typeof totalGames === 'number') ? totalGames : 0;
+        if (tg === 0) {
+          // 1a partida: 2 nos (easy + medium) - bem gentil
+          out.push(window.placeBranch(fromNode, 'easy',   rand(-0.9, -0.5)));
+          out.push(window.placeBranch(fromNode, 'medium', rand( 0.5,  0.9)));
+        } else if (tg === 1) {
+          // 2a partida: 3 nos (easy + medium + hard)
+          out.push(window.placeBranch(fromNode, 'easy',   rand(-1.1, -0.6)));
+          out.push(window.placeBranch(fromNode, 'medium', rand(-0.25, 0.25)));
+          out.push(window.placeBranch(fromNode, 'hard',   rand( 0.6,  1.1)));
+        } else {
+          // 3a partida: 3 nos com possibilidade de gold (sem asteroides)
+          out.push(window.placeBranch(fromNode, 'easy',   rand(-1.1, -0.6)));
+          out.push(window.placeBranch(fromNode, 'hard',   rand( 0.6,  1.1)));
+          if (Math.random() < 0.25) {
+            out.push(window.placeBranch(fromNode, 'gold',   rand(-0.25, 0.25)));
+          } else {
+            out.push(window.placeBranch(fromNode, 'medium', rand(-0.25, 0.25)));
           }
         }
+      } else {
+        // Pos-onboarding: leque fixo de 4 nos
+        out.push(window.placeBranch(fromNode, 'easy',   -1.85 + (Math.random()-0.5)*0.30));  // verde
+        out.push(window.placeBranch(fromNode, 'hard',   -0.55 + (Math.random()-0.5)*0.30));  // vermelho
+        // Dourado: angulo quase reto pra cima
+        const goldBranch = window.placeBranch(fromNode, 'gold', 0.08 + (Math.random()-0.5)*0.18);
+        // Boost vertical pra subir mais ainda na tela
+        const upBoost = Math.min(90, H * 0.09);
+        const minY = fromNode.y - H * 0.45;
+        goldBranch.y = Math.max(minY, goldBranch.y - upBoost);
+        goldBranch.baseY = goldBranch.y;
+        out.push(goldBranch);
+        out.push(window.placeBranch(fromNode, 'medium',  1.40 + (Math.random()-0.5)*0.30));  // azul
       }
+
+      // ASTEROIDES REMOVIDOS: eram RNG puro caindo na trajetoria.
+      // Dificuldade agora vem 100% de skill (timing, escolha de no,
+      // velocidade crescente, nos moveis/sumindo/teleportando).
+      // O `handled: true` abaixo skipa o spawn original do game.js
+      // (que pushaava asteroides em phase >= 4).
 
       payload.branches = out;
       payload.handled = true;
@@ -625,7 +1222,7 @@
   const NODE_DYNAMIC_RULES = {
     easy:   { move: 0.25, disappear: 0.15 },
     medium: { move: 0.35, disappear: 0.20 },
-    hard:   { move: 0.40, disappear: 0.25 },
+    hard:   { move: 0.25, disappear: 0.15 },  // reduzido pra vermelho ser menos imprevisivel
     gold:   { move: 0.30, disappear: 0.25 },
   };
 
@@ -644,8 +1241,9 @@
         _currentSpawnSiblings.push({ x: branch.x, y: branch.y });
       }
 
-      // Aplica mecanicas dinamicas randomicas (ignora zen)
+      // Aplica mecanicas dinamicas randomicas (ignora zen e onboarding)
       if (typeof zenMode !== 'undefined' && zenMode) return branch;
+      if (_isOnboarding()) return branch;
 
       const rules = NODE_DYNAMIC_RULES[tier] || NODE_DYNAMIC_RULES.medium;
       const roll = Math.random();
@@ -707,6 +1305,33 @@
   // Desativa o spawn de power-ups (escudo, slow-mo, magnet) por completo.
   if (typeof window.spawnPowerup === 'function') {
     window.spawnPowerup = function(){ /* disabled */ };
+  }
+
+  // Cleanup agressivo de nos CAPTURADOS que nao sao o atual.
+  // Original limpa em W*2 (~780px) ou offscreen+180. Agente W*0.6
+  // (~234px) pra remover capturados rapidamente da area de play.
+  // Isso evita confusao visual com nos novos.
+  if (typeof window.update === 'function') {
+    const _origUpdate = window.update;
+    window.update = function(dt){
+      const r = _origUpdate.apply(this, arguments);
+      try {
+        if (Array.isArray(nodes) && typeof ball !== 'undefined' && ball) {
+          const cleanupDist = Math.max(W, H) * 0.55;
+          for (let i = nodes.length - 1; i >= 0; i--) {
+            const n = nodes[i];
+            if (!n || !n.captured) continue;
+            if (i === ball.currentNode) continue;
+            const d = Math.hypot(n.x - ball.x, n.y - ball.y);
+            if (d > cleanupDist) {
+              nodes.splice(i, 1);
+              if (i < ball.currentNode) ball.currentNode--;
+            }
+          }
+        }
+      } catch(e) {}
+      return r;
+    };
   }
 
   // ---------- 3. PULAR LOADING / IR DIRETO PRO MENU MINIMAL ----------
@@ -878,7 +1503,7 @@
     // Subtitulo
     X.fillStyle = 'rgba(255,255,255,0.5)';
     X.font = subtitleSize + 'px -apple-system, system-ui, sans-serif';
-    X.fillText('Um toque. Solte. Não erre.', W/2, lineY + subtitleSize * 1.2 + 4);
+    X.fillText(_t('subtitle'), W/2, lineY + subtitleSize * 1.2 + 4);
 
     // ---------- 4. Card de RECORDE com medalha ----------
     const bestVal = (typeof best === 'number') ? best : 0;
@@ -919,7 +1544,7 @@
       X.textAlign = 'center';
       X.fillStyle = 'rgba(255,255,255,0.55)';
       X.font = labelSize + 'px -apple-system, system-ui, sans-serif';
-      X.fillText('RECORDE', textCx, innerY - recordSize * 0.45);
+      X.fillText(_t('record'), textCx, innerY - recordSize * 0.45);
       X.fillStyle = '#ffd32a';
       X.shadowColor = '#ffaa00';
       X.shadowBlur = 12;
@@ -932,7 +1557,7 @@
       X.textBaseline = 'middle';
       X.fillStyle = 'rgba(255,255,255,0.55)';
       X.font = labelSize + 'px -apple-system, system-ui, sans-serif';
-      X.fillText('RECORDE', W/2, innerY - recordSize * 0.45);
+      X.fillText(_t('record'), W/2, innerY - recordSize * 0.45);
       X.fillStyle = '#ffd32a';
       X.shadowColor = '#ffaa00';
       X.shadowBlur = 12;
@@ -950,7 +1575,7 @@
       X.shadowColor = '#ff8800';
       X.shadowBlur = 8;
       X.font = 'bold ' + streakSize + 'px -apple-system, system-ui, sans-serif';
-      X.fillText('🔥 ' + _menuDayStreak + ' DIAS SEGUIDOS', W/2, cursorY);
+      X.fillText(_t('days_streak', { n: _menuDayStreak }), W/2, cursorY);
       X.shadowBlur = 0;
       cursorY += streakSize + 18;
     }
@@ -968,7 +1593,7 @@
     X.font = 'bold ' + tapSize + 'px -apple-system, system-ui, sans-serif';
     X.textAlign = 'center';
     X.textBaseline = 'middle';
-    X.fillText('▶   TOQUE PARA JOGAR   ◀', W/2, ctaY);
+    X.fillText(_t('tap_to_play'), W/2, ctaY);
     X.shadowBlur = 0;
     X.restore();
 
@@ -976,7 +1601,7 @@
     X.globalAlpha = 0.35;
     X.fillStyle = '#ffffff';
     X.font = (subtitleSize - 1) + 'px -apple-system, system-ui, sans-serif';
-    X.fillText('toque em qualquer lugar', W/2, ctaY + tapSize + 8);
+    X.fillText(_t('tap_anywhere'), W/2, ctaY + tapSize + 8);
     X.globalAlpha = 1;
 
     // ---------- Mute btn (canto superior direito) ----------
@@ -987,14 +1612,145 @@
     X.fillText((typeof muted !== 'undefined' && muted) ? '🔇' : '🔊', W - 16, 26);
     X.globalAlpha = 1;
 
+    // ---------- Daltonismo btn (canto superior direito, ao lado do mute) ----------
+    if (_colorBlindMode) {
+      X.save();
+      X.globalAlpha = 0.85;
+      X.fillStyle = '#7bed9f';
+      X.shadowColor = '#7bed9f';
+      X.shadowBlur = 8;
+      X.font = '18px sans-serif';
+      X.textAlign = 'right';
+      X.fillText('👁', W - 60, 26);
+      X.restore();
+    } else {
+      X.globalAlpha = 0.30;
+      X.fillStyle = '#ffffff';
+      X.font = '18px sans-serif';
+      X.textAlign = 'right';
+      X.fillText('👁', W - 60, 26);
+      X.globalAlpha = 1;
+    }
+
+    // ---------- Lang toggle btn (top-right, esquerda do daltonismo) ----------
+    X.save();
+    X.globalAlpha = 0.55;
+    X.fillStyle = '#ffffff';
+    X.font = 'bold 12px -apple-system, system-ui, sans-serif';
+    X.textAlign = 'right';
+    X.textBaseline = 'middle';
+    X.fillText('🌐 ' + _t('lang_label'), W - 100, 26);
+    X.restore();
+
+    // ---------- Toast "Toque novamente pra sair" (back button armado) ----------
+    if (_backArmed) {
+      const now = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+      const elapsed = now - _backArmedT;
+      if (elapsed < BACK_EXIT_WINDOW_MS) {
+        const rem = (BACK_EXIT_WINDOW_MS - elapsed) / BACK_EXIT_WINDOW_MS; // 1.0 → 0.0
+        const fade = rem < 0.2 ? (rem / 0.2) : 1;  // fade out nos ultimos 400ms
+        const toastW = Math.min(W * 0.86, 320);
+        const toastH = 52;
+        const toastX = (W - toastW) / 2;
+        const toastY = H - toastH - 80;
+
+        X.save();
+        X.globalAlpha = 0.92 * fade;
+        X.fillStyle = 'rgba(20,8,30,0.95)';
+        if (typeof roundRect === 'function') { roundRect(toastX, toastY, toastW, toastH, 12); X.fill(); }
+        else X.fillRect(toastX, toastY, toastW, toastH);
+        X.strokeStyle = '#ff6b9d';
+        X.lineWidth = 1.5;
+        X.shadowColor = '#ff3377';
+        X.shadowBlur = 12;
+        if (typeof roundRect === 'function') { roundRect(toastX, toastY, toastW, toastH, 12); X.stroke(); }
+        X.shadowBlur = 0;
+
+        X.fillStyle = '#ffffff';
+        X.font = 'bold 13px -apple-system, system-ui, sans-serif';
+        X.textAlign = 'center';
+        X.textBaseline = 'middle';
+        X.fillText(_t('back_to_exit'), W/2, toastY + toastH/2 - 2);
+
+        // Barra de tempo restante na base do toast
+        X.fillStyle = '#ff6b9d';
+        X.fillRect(toastX + 4, toastY + toastH - 4, (toastW - 8) * rem, 2);
+        X.restore();
+      } else {
+        // Janela expirou - desarma silenciosamente
+        _backArmed = false;
+      }
+    }
+
+    // ---------- Debug btn (canto superior esquerdo) ----------
+    // Quando OFF: emoji bem fraco (precisa procurar)
+    // Quando ON: glow vermelho + label
+    if (_debugMode) {
+      X.save();
+      X.globalAlpha = 0.85;
+      X.fillStyle = '#ff5577';
+      X.shadowColor = '#ff0044';
+      X.shadowBlur = 10;
+      X.font = '18px sans-serif';
+      X.textAlign = 'left';
+      X.fillText('🧪', 14, 26);
+      X.font = 'bold 11px -apple-system, system-ui, sans-serif';
+      X.fillText(_t('debug_label'), 38, 27);
+      X.restore();
+    } else {
+      X.globalAlpha = 0.18;
+      X.fillStyle = '#ffffff';
+      X.font = '18px sans-serif';
+      X.textAlign = 'left';
+      X.fillText('🧪', 14, 26);
+      X.globalAlpha = 1;
+    }
+
+    // Banner central pulsante quando debug ON (avisa que nao morre)
+    if (_debugMode) {
+      const bannerPulse = 0.7 + Math.sin(t * 4) * 0.3;
+      X.save();
+      X.globalAlpha = bannerPulse;
+      X.fillStyle = '#ff5577';
+      X.shadowColor = '#ff0044';
+      X.shadowBlur = 12;
+      X.font = 'bold ' + streakSize + 'px -apple-system, system-ui, sans-serif';
+      X.textAlign = 'center';
+      X.fillText(_t('debug_banner_menu'), W/2, H * 0.91);
+      X.restore();
+    }
+
     // ---------- Hit areas ----------
     if (typeof menuBtnAreas !== 'undefined') {
+      // Debug btn (top-left) - PRIMEIRO pra ter prioridade
+      menuBtnAreas.push({
+        x: 0, y: 4, w: 90, h: 44,
+        action: function(){
+          _toggleDebug();
+        }
+      });
+      // Lang toggle btn (top-right, esquerda do daltonismo)
+      menuBtnAreas.push({
+        x: W - 140, y: 4, w: 50, h: 44,
+        action: function(){
+          _cycleLang();
+        }
+      });
+      // Daltonismo btn (top-right, esquerda do mute)
+      menuBtnAreas.push({
+        x: W - 90, y: 4, w: 40, h: 44,
+        action: function(){
+          _toggleColorBlind();
+        }
+      });
+      // Mute btn (top-right)
       menuBtnAreas.push({
         x: W - 50, y: 4, w: 50, h: 44,
         action: function(){
           if (typeof toggleMute === 'function') toggleMute();
         }
       });
+      // Tap-anywhere = play
       menuBtnAreas.push({
         x: 0, y: 50, w: W, h: H - 50,
         action: function(){
@@ -1007,8 +1763,88 @@
   // Bloquear roteamento alternativo caso outros patches restaurem.
   window.orbitaMenuShell_drawMainMenu = window.orbitaMenuShell_drawMenuUI;
 
+  // ---------- DALTONISMO: marcadores de forma sobre os nos ----------
+  // Aplicado no espaco do mundo (com cam offset + zoom). Chamado de
+  // dentro do drawPlayUIModule, que roda em screen-space, entao
+  // restauramos manualmente o zoom/pan.
+  function _drawColorBlindMarkers(){
+    if (!_colorBlindMode) return;
+    if (typeof nodes === 'undefined' || !Array.isArray(nodes)) return;
+    if (typeof cam === 'undefined') return;
+
+    X.save();
+    const z = cam.zoom || 1;
+    if (z !== 1) {
+      X.translate(W/2, H/2);
+      X.scale(z, z);
+      X.translate(-W/2, -H/2);
+    }
+
+    for (const n of nodes) {
+      if (!n) continue;
+      if (n.captured) continue;       // nos capturados nao precisam de hint
+      if (n.visible === false) continue;
+      if (!n.tier || n.tier === 'easy') continue;  // verde fica sem marca
+
+      const nx = n.x - cam.x;
+      const ny = n.y - cam.y;
+      const r = n.nodeR || 12;
+
+      X.save();
+      X.translate(nx, ny);
+      X.strokeStyle = '#ffffff';
+      X.lineWidth = 2.2;
+      X.lineCap = 'round';
+      X.lineJoin = 'round';
+      // Sombra preta atras do marcador pra contraste
+      X.shadowColor = 'rgba(0,0,0,0.85)';
+      X.shadowBlur = 4;
+
+      if (n.tier === 'medium') {
+        // triangulo apontando pra cima
+        const s = r * 0.55;
+        X.beginPath();
+        X.moveTo(0, -s);
+        X.lineTo(s * 0.866, s * 0.5);
+        X.lineTo(-s * 0.866, s * 0.5);
+        X.closePath();
+        X.stroke();
+      } else if (n.tier === 'hard') {
+        // X cross
+        const s = r * 0.55;
+        X.beginPath();
+        X.moveTo(-s, -s);
+        X.lineTo(s, s);
+        X.moveTo(s, -s);
+        X.lineTo(-s, s);
+        X.stroke();
+      } else if (n.tier === 'gold') {
+        // estrela 4 pontas
+        const sl = r * 0.65;  // arm longo
+        const ss = r * 0.20;  // arm curto
+        X.beginPath();
+        X.moveTo(0, -sl);
+        X.lineTo(ss, -ss);
+        X.lineTo(sl, 0);
+        X.lineTo(ss, ss);
+        X.lineTo(0, sl);
+        X.lineTo(-ss, ss);
+        X.lineTo(-sl, 0);
+        X.lineTo(-ss, -ss);
+        X.closePath();
+        X.stroke();
+      }
+      X.restore();
+    }
+
+    X.restore();
+  }
+
   // ---------- 5. PLAY UI MINIMAL: so score grande, sem fase/combo/missao ----------
   window.drawPlayUIModule = function(){
+    // Marcadores de daltonismo PRIMEIRO (no espaço do mundo)
+    _drawColorBlindMarkers();
+
     X.textAlign = 'center';
     X.textBaseline = 'top';
 
@@ -1024,6 +1860,87 @@
     X.shadowBlur = 8;
     X.fillText(String(typeof score==='number'?score:0), W/2, topY);
     X.shadowBlur = 0;
+
+    // Badge DEBUG (SEM MORTE) - quando testMode ativo
+    if (typeof testMode !== 'undefined' && testMode) {
+      const t = (typeof menuT === 'number') ? menuT : 0;
+      const pulse = 0.65 + Math.sin(t * 5) * 0.35;
+      X.save();
+      X.globalAlpha = pulse;
+      X.fillStyle = '#ff5577';
+      X.shadowColor = '#ff0044';
+      X.shadowBlur = 10;
+      X.font = 'bold 12px -apple-system, system-ui, sans-serif';
+      X.textAlign = 'center';
+      X.textBaseline = 'top';
+      X.fillText(_t('sem_morte_label'), W/2, topY + scoreSize + 4);
+      X.restore();
+    }
+
+    // ---------- ONBOARDING HINT (1a partida, antes de soltar) ----------
+    if (_tapHintVisible && typeof ball !== 'undefined' && ball && ball.orbiting) {
+      const t = (typeof menuT === 'number') ? menuT : 0;
+      const pulse = 0.55 + Math.sin(t * 3.2) * 0.45;
+      const bounceY = Math.sin(t * 4) * 6;
+      const hintY = H * 0.42;
+      const hintSize = Math.max(20, Math.min(28, W * 0.075));
+      const subSize  = Math.max(13, Math.min(16, W * 0.042));
+
+      // BG semitransparente atras pra destacar o hint
+      X.save();
+      X.globalAlpha = 0.35;
+      X.fillStyle = '#000000';
+      X.fillRect(0, hintY - hintSize, W, hintSize * 4);
+      X.restore();
+
+      // Texto principal
+      X.save();
+      X.globalAlpha = pulse;
+      X.fillStyle = '#00f5d4';
+      X.shadowColor = '#00f5d4';
+      X.shadowBlur = 16;
+      X.font = 'bold ' + hintSize + 'px -apple-system, system-ui, sans-serif';
+      X.textAlign = 'center';
+      X.textBaseline = 'middle';
+      X.fillText(_t('tap_to_release'), W/2, hintY);
+      X.shadowBlur = 0;
+      X.restore();
+
+      // Emoji de mao animada (bounce vertical)
+      X.save();
+      X.font = (hintSize * 1.3) + 'px sans-serif';
+      X.textAlign = 'center';
+      X.textBaseline = 'middle';
+      X.fillText('👆', W/2, hintY + hintSize + 14 + bounceY);
+      X.restore();
+
+      // Subtexto explicando
+      X.save();
+      X.globalAlpha = 0.75;
+      X.fillStyle = '#ffffff';
+      X.font = subSize + 'px -apple-system, system-ui, sans-serif';
+      X.textAlign = 'center';
+      X.textBaseline = 'middle';
+      X.fillText(_t('release_hint_1'), W/2, hintY + hintSize * 2 + 30);
+      X.fillText(_t('release_hint_2'), W/2, hintY + hintSize * 2 + 30 + subSize + 4);
+      X.restore();
+    }
+
+    // Hint pequeno nas partidas 2 e 3 (encorajamento sem bloquear visao)
+    if (!_tapHintVisible && _isOnboarding() && typeof totalGames === 'number' && totalGames > 0) {
+      const t = (typeof menuT === 'number') ? menuT : 0;
+      const fade = 0.55 + Math.sin(t * 2) * 0.20;
+      X.save();
+      X.globalAlpha = fade;
+      X.fillStyle = '#7bed9f';
+      X.font = 'bold 11px -apple-system, system-ui, sans-serif';
+      X.textAlign = 'center';
+      X.textBaseline = 'top';
+      const remaining = 3 - totalGames;
+      const trainKey = remaining === 1 ? 'training_match_singular' : 'training_match_plural';
+      X.fillText(_t(trainKey, { n: remaining }), W/2, topY + scoreSize + 6);
+      X.restore();
+    }
 
     // Pause btn
     if (typeof drawPauseBtn === 'function') drawPauseBtn();
@@ -1043,7 +1960,7 @@
     X.fillRect(-10, -10, W + 20, H + 20);
     X.globalAlpha = 1;
 
-    // ---------- NEAR-MISS VISUAL (cassino: "voce era pra ter pego") ----------
+    // ---------- NEAR-MISS VISUAL ("voce era pra ter pego") ----------
     // Desenha por cima do dim, abaixo do card de morte. Ring pulsante
     // no no que ficou faltando + linha pontilhada da bola ate o no.
     if (_nearMissData && dt > 0.15 && typeof cam !== 'undefined') {
@@ -1104,7 +2021,7 @@
       X.font = 'bold ' + labelSize + 'px -apple-system, system-ui, sans-serif';
       X.textAlign = 'center';
       X.textBaseline = 'middle';
-      X.fillText('QUASE!', nx, ny - nm.captureR - 18 - pulse * 4);
+      X.fillText(_t('near_miss_text'), nx, ny - nm.captureR - 18 - pulse * 4);
       X.shadowBlur = 0;
       X.restore();
     }
@@ -1132,7 +2049,7 @@
     X.shadowColor = '#ff0033';
     X.shadowBlur = 18;
     X.font = 'bold ' + titleSize + 'px -apple-system, system-ui, sans-serif';
-    X.fillText('MORREU', W/2, H*0.13);
+    X.fillText(_t('morreu'), W/2, H*0.13);
     X.shadowBlur = 0;
 
     // Snapshot dos valores
@@ -1176,7 +2093,7 @@
     let cursorY = cardY + padTop + 4;
     X.fillStyle = 'rgba(255,255,255,0.55)';
     X.font = labelSize + 'px -apple-system, system-ui, sans-serif';
-    X.fillText('PONTOS', W/2, cursorY);
+    X.fillText(_t('points'), W/2, cursorY);
     cursorY += labelSize + 4;
     X.fillStyle = '#fff';
     X.shadowColor = '#b0b0ff';
@@ -1189,7 +2106,7 @@
     // RECORDE
     X.fillStyle = 'rgba(255,255,255,0.55)';
     X.font = labelSize + 'px -apple-system, system-ui, sans-serif';
-    X.fillText('RECORDE', W/2, cursorY);
+    X.fillText(_t('record'), W/2, cursorY);
     cursorY += labelSize + 4;
     X.fillStyle = '#ffd32a';
     X.shadowColor = '#ffaa00';
@@ -1248,7 +2165,7 @@
       // pct text
       X.fillStyle = 'rgba(255,255,255,0.65)';
       X.font = (labelSize-1) + 'px -apple-system, system-ui, sans-serif';
-      X.fillText(Math.round(progressPct * 100) + '% do recorde', W/2, barY + barH + labelSize - 1);
+      X.fillText(_t('record_pct', { n: Math.round(progressPct * 100) }), W/2, barY + barH + labelSize - 1);
     }
 
     // ---------- BANNER ABAIXO DO CARD ----------
@@ -1260,7 +2177,7 @@
       X.shadowColor = '#ff0';
       X.shadowBlur = 18;
       X.font = 'bold ' + bannerSize + 'px -apple-system, system-ui, sans-serif';
-      X.fillText('⭐ NOVO RECORDE! ⭐', W/2, bannerY);
+      X.fillText(_t('new_record_banner'), W/2, bannerY);
       X.shadowBlur = 0;
       X.globalAlpha = f;
     }
@@ -1268,10 +2185,11 @@
     // ---------- STATS ROW (3 mini items) ----------
     const statsY = bannerY + (newRec ? bannerSize + 18 : 8);
     const statSlotW = cardW / 3;
+    const nodesKey = captures === 1 ? 'nodes_singular' : 'nodes_plural';
     const statsItems = [
-      { icon: '⏱', value: durationS.toFixed(1) + 's' },
-      { icon: '⚡', value: captures + (captures === 1 ? ' nó' : ' nós') },
-      { icon: '🔥', value: 'x' + maxComboVal }
+      { icon: '⏱', value: _t('seconds_short', { n: durationS.toFixed(1) }) },
+      { icon: '⚡', value: _t(nodesKey, { n: captures }) },
+      { icon: '🔥', value: _t('combo_x', { n: maxComboVal }) }
     ];
     for (let i = 0; i < statsItems.length; i++) {
       const cx = cardX + statSlotW * i + statSlotW/2;
@@ -1290,7 +2208,7 @@
       X.shadowColor = '#ff8800';
       X.shadowBlur = 8;
       X.font = 'bold ' + (statSize + 1) + 'px -apple-system, system-ui, sans-serif';
-      X.fillText('🔥 ' + _currentDayStreak + ' DIAS SEGUIDOS', W/2, streakY);
+      X.fillText(_t('days_streak', { n: _currentDayStreak }), W/2, streakY);
       X.shadowBlur = 0;
     }
 
@@ -1308,7 +2226,7 @@
       X.globalAlpha = f * hintBlink;
       X.fillStyle = '#00f5d4';
       X.font = 'bold ' + hintSize + 'px -apple-system, system-ui, sans-serif';
-      X.fillText('TOQUE PARA JOGAR DE NOVO', W/2, H - 32);
+      X.fillText(_t('tap_to_retry'), W/2, H - 32);
       X.globalAlpha = f;
     }
 
@@ -1362,6 +2280,8 @@
 
       // Menu: tap em qualquer lugar joga (botoes injetados pelo nosso draw)
       if (state === ST.MENU) {
+        // Desarma o exit-prompt do back button - usuario interagiu
+        _backArmed = false;
         for (const b of menuBtnAreas) {
           if (x>=b.x && x<=b.x+b.w && y>=b.y && y<=b.y+b.h) { b.action(x,y); return; }
         }
@@ -1399,6 +2319,11 @@
           if (overshoot > 1) {
             console.warn('[orbita] score sanity check failed:', score,
                          '(expected ' + _expectedScore + ')');
+            _crumb('anti-cheat', 'score_clamped', {
+              actual: score,
+              expected: _expectedScore,
+              overshoot: overshoot
+            });
             score = _expectedScore;
             _cheatFlagged = true;
           }
@@ -1465,6 +2390,15 @@
         try {
           _currentDayStreak = parseInt(localStorage.getItem('orbita_day_streak') || '1', 10) || 1;
         } catch(e) { _currentDayStreak = 1; }
+        _crumb('gameplay', 'die', {
+          score: typeof score === 'number' ? score : 0,
+          best: typeof best === 'number' ? best : 0,
+          newRec: typeof newRec !== 'undefined' && !!newRec,
+          duration: _runDurationS,
+          captures: _captureCount,
+          maxCombo: _runMaxCombo,
+          nearMiss: !!_nearMissData
+        });
       } catch(e) {}
 
       // ---------- Analytics: game_end (retencao/engajamento) ----------
@@ -1492,15 +2426,15 @@
     };
   }
 
-  // ---------- VARIABLE RATIO: bonus aleatorio em capturas (cassino) ----------
-  // 4% jackpot (5x), 11% lucky (2x). Reforço de razao variavel = a
-  // mesma compulsao das maquinas caca-niqueis.
+  // ---------- BÔNUS ALEATORIO em capturas (recompensa variavel) ----------
+  // 4% mega bonus (5x), 11% bonus (2x). Reforço positivo intermitente
+  // que aumenta engajamento sem mecanicas de aposta.
   if (typeof window.capture === 'function') {
     const _origCapture = window.capture;
     window.capture = function(nodeIdx){
       const result = _origCapture.apply(this, arguments);
 
-      // Flash branco curto em TODA captura (operant conditioning)
+      // Flash branco curto em TODA captura (feedback positivo imediato)
       _captureFlashT = 1.0;
       try {
         if (typeof flashA !== 'undefined') flashA = Math.max(flashA, 0.10);
@@ -1514,8 +2448,8 @@
         const roll = Math.random();
         let bonusType = null;
         let mult = 1;
-        if (roll < JACKPOT_CHANCE) { bonusType = 'jackpot'; mult = 5; }
-        else if (roll < JACKPOT_CHANCE + LUCKY_CHANCE) { bonusType = 'lucky'; mult = 2; }
+        if (roll < MEGA_BONUS_CHANCE) { bonusType = 'mega'; mult = 5; }
+        else if (roll < MEGA_BONUS_CHANCE + LUCKY_CHANCE) { bonusType = 'lucky'; mult = 2; }
 
         if (!bonusType) { _lastBonusType = null; return result; }
 
@@ -1523,31 +2457,31 @@
         if (typeof score === 'number') score += bonusPts;
         _lastBonusType = bonusType;
 
-        const text = bonusType === 'jackpot'
-          ? '🎰 JACKPOT! +' + (basePts * mult)
-          : '✦ BÔNUS x2 ✦';
-        const color = bonusType === 'jackpot' ? '#ffd700' : '#ff80ff';
+        const text = bonusType === 'mega'
+          ? _t('mega_bonus_text', { n: (basePts * mult) })
+          : _t('bonus_x2_text');
+        const color = bonusType === 'mega' ? '#ffd700' : '#ff80ff';
 
         if (typeof addScorePopup === 'function') {
           addScorePopup(n.x, n.y - 78, text, color);
         }
         if (typeof emit === 'function') {
-          const palette = bonusType === 'jackpot'
+          const palette = bonusType === 'mega'
             ? ['#ffd700','#fff080','#ffffff','#ffaa00','#ff8800']
             : ['#ff80ff','#ffd0ff','#ffffff','#ff60ff'];
-          emit(n.x, n.y, bonusType === 'jackpot' ? 28 : 16, palette,
-               bonusType === 'jackpot' ? 1.9 : 1.3);
+          emit(n.x, n.y, bonusType === 'mega' ? 28 : 16, palette,
+               bonusType === 'mega' ? 1.9 : 1.3);
         }
         if (typeof flashA !== 'undefined') {
-          flashA = Math.max(flashA, bonusType === 'jackpot' ? 0.30 : 0.18);
+          flashA = Math.max(flashA, bonusType === 'mega' ? 0.30 : 0.18);
         }
         if (typeof shakeT !== 'undefined') {
-          shakeT = Math.max(shakeT, bonusType === 'jackpot' ? 0.20 : 0.10);
-          shakeA = Math.max(shakeA, bonusType === 'jackpot' ? 9 : 5);
+          shakeT = Math.max(shakeT, bonusType === 'mega' ? 0.20 : 0.10);
+          shakeA = Math.max(shakeA, bonusType === 'mega' ? 9 : 5);
         }
         if (typeof actx !== 'undefined' && actx && !muted && typeof playTone === 'function') {
-          if (bonusType === 'jackpot') {
-            // 4 notas ascendentes - euforia
+          if (bonusType === 'mega') {
+            // 4 notas ascendentes - feedback de conquista
             [0, 70, 140, 210].forEach((d, i) => {
               setTimeout(()=>{
                 playTone(700 + i*240, 0.18, 'sine', 0.13);
@@ -1560,7 +2494,7 @@
           }
         }
         if (typeof vibrate === 'function') {
-          vibrate(bonusType === 'jackpot' ? [40, 20, 40, 20, 80] : [20, 12, 25]);
+          vibrate(bonusType === 'mega' ? [40, 20, 40, 20, 80] : [20, 12, 25]);
         }
       } catch(e) {}
 
@@ -1569,9 +2503,10 @@
   }
 
   // Reset do estado psicologico + tracking de duracao da run.
+  // Tambem forca testMode quando _debugMode esta ativo.
   if (typeof window.startRun === 'function') {
     const _origStartRun = window.startRun;
-    window.startRun = function(){
+    window.startRun = function(useZen, source, opts){
       _nearMissData = null;
       _captureFlashT = 0;
       _lastBonusType = null;
@@ -1579,13 +2514,38 @@
       _captureCount = 0;
       _expectedScore = 0;       // anti-cheat reset
       _cheatFlagged = false;
-      return _origStartRun.apply(this, arguments);
+      _hasReleasedThisRun = false;
+      // Hint visual de tap aparece apenas na 1a partida ever
+      _tapHintVisible = (typeof totalGames === 'number' && totalGames === 0 && !useZen);
+      // DEBUG: ativa testMode (sem morte) se _debugMode estiver ligado
+      if (_debugMode && !useZen) {
+        opts = opts || {};
+        opts.testMode = true;
+      }
+      _crumb('gameplay', 'startRun', {
+        zen: !!useZen,
+        source: source || '',
+        debug: !!_debugMode,
+        totalGames: (typeof totalGames === 'number') ? totalGames : 0,
+        best: (typeof best === 'number') ? best : 0
+      });
+      return _origStartRun.call(this, useZen, source, opts);
+    };
+  }
+
+  // Esconde hint na primeira liberacao da bola
+  if (typeof window.release === 'function') {
+    const _origRelease = window.release;
+    window.release = function(){
+      _tapHintVisible = false;
+      _hasReleasedThisRun = true;
+      return _origRelease.apply(this, arguments);
     };
   }
 
   // Conta capturas + rastreia _expectedScore (anti-cheat).
   // Esta wrap roda por ultimo, entao ve o score depois de TODOS
-  // os ganhos legitimos (origCapture + bonus jackpot/lucky).
+  // os ganhos legitimos (origCapture + bonus mega/lucky).
   if (typeof window.capture === 'function') {
     const _capForCount = window.capture;
     window.capture = function(){

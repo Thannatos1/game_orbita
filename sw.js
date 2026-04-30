@@ -1,10 +1,12 @@
-const CACHE_NAME = 'orbita-pwa-v76';
+const CACHE_NAME = 'orbita-pwa-v92';
 const SUPABASE_SDK_URL = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0/dist/umd/supabase.min.js';
+const SENTRY_SDK_URL = 'https://browser.sentry-cdn.com/7.119.2/bundle.min.js';
 const APP_SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
   './sw.js',
+  './js/sentry_init.js',
   './js/app_bootstrap.js',
   './js/core.js',
   './js/services.js',
@@ -13,23 +15,32 @@ const APP_SHELL = [
   './js/game.js',
   './js/render.js',
   './js/gameplay_ui.js',
+  './js/i18n.js',
   './js/flappy_radical_patch.js',
   './js/main.js',
+  './privacy-policy.html',
   './icons/icon-192.png',
   './icons/icon-512.png'
 ];
 
 async function precacheAll(cache) {
   await cache.addAll(APP_SHELL);
+  // Supabase SDK
   try {
     const sdkReq = new Request(SUPABASE_SDK_URL, { mode: 'cors', credentials: 'omit' });
     const sdkResp = await fetch(sdkReq);
     if (sdkResp && sdkResp.ok) {
       await cache.put(sdkReq, sdkResp.clone());
     }
-  } catch (e) {
-    // SDK precache failure is non-fatal; runtime cache-first will retry.
-  }
+  } catch (e) {}
+  // Sentry SDK
+  try {
+    const sentryReq = new Request(SENTRY_SDK_URL, { mode: 'cors', credentials: 'omit' });
+    const sentryResp = await fetch(sentryReq);
+    if (sentryResp && sentryResp.ok) {
+      await cache.put(sentryReq, sentryResp.clone());
+    }
+  } catch (e) {}
 }
 
 self.addEventListener('install', event => {
@@ -54,7 +65,7 @@ self.addEventListener('fetch', event => {
 
   if (req.method !== 'GET') return;
 
-  if (url.href === SUPABASE_SDK_URL) {
+  if (url.href === SUPABASE_SDK_URL || url.href === SENTRY_SDK_URL) {
     event.respondWith(
       caches.open(CACHE_NAME).then(cache =>
         cache.match(req).then(cached => {

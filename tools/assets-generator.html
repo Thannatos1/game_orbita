@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Órbita — Assets Generator</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0a0a14;
+    color: #c8c8e0;
+    padding: 2rem;
+    line-height: 1.5;
+  }
+  h1 { color: #fff; font-size: 1.6rem; margin-bottom: 0.4rem; }
+  h1 small { font-size: 0.85rem; color: #6a6a88; font-weight: normal; }
+  h2 { color: #80f5e8; font-size: 1.1rem; margin: 2rem 0 0.5rem; padding-bottom: 0.3rem; border-bottom: 1px solid #1a1a30; }
+  p { color: #8888aa; font-size: 0.9rem; margin-bottom: 1rem; }
+  .info { background: #11112a; padding: 0.6rem 1rem; border-left: 3px solid #00f5d4; border-radius: 4px; font-size: 0.85rem; color: #a0a0c8; margin-bottom: 1rem; }
+  .grid { display: grid; gap: 1.5rem; grid-template-columns: 1fr; }
+  .asset {
+    background: #11112a;
+    border-radius: 8px;
+    padding: 1rem;
+    border: 1px solid #1a1a30;
+  }
+  .asset-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+  }
+  .asset-title { color: #fff; font-weight: 600; }
+  .asset-size { color: #6a6a88; font-size: 0.8rem; font-family: monospace; }
+  .asset canvas {
+    display: block;
+    margin: 0 auto;
+    background: repeating-conic-gradient(#1a1a30 0% 25%, #14142a 0% 50%) 50% / 16px 16px;
+    border-radius: 4px;
+    max-width: 100%;
+    height: auto;
+  }
+  button {
+    background: #00f5d4;
+    color: #04060e;
+    border: 0;
+    padding: 0.55rem 1.2rem;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 0.9rem;
+    margin-top: 0.75rem;
+  }
+  button:hover { background: #80f5e8; }
+  button.bulk {
+    background: #ffd32a;
+    margin-bottom: 1rem;
+    padding: 0.7rem 1.6rem;
+    font-size: 1rem;
+  }
+  .footer { color: #555575; font-size: 0.8rem; margin-top: 3rem; text-align: center; }
+  code { background: #1a1a30; padding: 0.1rem 0.4rem; border-radius: 3px; color: #d0d0f0; font-size: 0.85em; }
+</style>
+</head>
+<body>
+
+<h1>Órbita Assets Generator <small>v1.0</small></h1>
+<p>Renderiza todos os assets necessários pra publicação na Play Store / App Store. Clique em "Download" embaixo de cada asset.</p>
+
+<div class="info">
+  <strong>Como usar:</strong>
+  <ol style="margin: 0.5rem 0 0.5rem 1.5rem; line-height: 1.7;">
+    <li>Clica em <strong>"📦 Download All"</strong> pra baixar todos de uma vez</li>
+    <li>Os arquivos vão pra pasta de Downloads do navegador com nomes corretos</li>
+    <li>Pra screenshots de loja, use a aba <strong>"📱 Screenshot Helper"</strong> no fim</li>
+  </ol>
+</div>
+
+<button class="bulk" id="downloadAll">📦 Download All Assets</button>
+
+<div class="grid">
+
+  <!-- =================================================== -->
+  <!-- ICON 512×512 (Play Store) -->
+  <!-- =================================================== -->
+  <div class="asset">
+    <div class="asset-header">
+      <div class="asset-title">📱 Icon — Play Store</div>
+      <div class="asset-size">512×512 PNG</div>
+    </div>
+    <canvas id="iconPlay" width="512" height="512" style="width:256px;height:256px"></canvas>
+    <button onclick="downloadCanvas('iconPlay', 'orbita-icon-512.png')">⬇ Download 512×512</button>
+  </div>
+
+  <!-- =================================================== -->
+  <!-- ICON 1024×1024 (App Store iOS) -->
+  <!-- =================================================== -->
+  <div class="asset">
+    <div class="asset-header">
+      <div class="asset-title">🍎 Icon — App Store iOS</div>
+      <div class="asset-size">1024×1024 PNG</div>
+    </div>
+    <canvas id="iconIOS" width="1024" height="1024" style="width:256px;height:256px"></canvas>
+    <button onclick="downloadCanvas('iconIOS', 'orbita-icon-1024.png')">⬇ Download 1024×1024</button>
+  </div>
+
+  <!-- =================================================== -->
+  <!-- ADAPTIVE ICON FOREGROUND (Android) -->
+  <!-- =================================================== -->
+  <div class="asset">
+    <div class="asset-header">
+      <div class="asset-title">🤖 Adaptive Icon Foreground</div>
+      <div class="asset-size">432×432 PNG (transparente)</div>
+    </div>
+    <canvas id="adaptiveFg" width="432" height="432" style="width:216px;height:216px"></canvas>
+    <button onclick="downloadCanvas('adaptiveFg', 'orbita-adaptive-foreground.png')">⬇ Download Foreground</button>
+  </div>
+
+  <!-- =================================================== -->
+  <!-- ADAPTIVE ICON BACKGROUND -->
+  <!-- =================================================== -->
+  <div class="asset">
+    <div class="asset-header">
+      <div class="asset-title">🤖 Adaptive Icon Background</div>
+      <div class="asset-size">432×432 PNG</div>
+    </div>
+    <canvas id="adaptiveBg" width="432" height="432" style="width:216px;height:216px"></canvas>
+    <button onclick="downloadCanvas('adaptiveBg', 'orbita-adaptive-background.png')">⬇ Download Background</button>
+  </div>
+
+  <!-- =================================================== -->
+  <!-- FEATURE GRAPHIC 1024×500 -->
+  <!-- =================================================== -->
+  <div class="asset">
+    <div class="asset-header">
+      <div class="asset-title">🎨 Feature Graphic — Play Store</div>
+      <div class="asset-size">1024×500 PNG</div>
+    </div>
+    <canvas id="featureGraphic" width="1024" height="500" style="width:100%;max-width:600px;height:auto"></canvas>
+    <button onclick="downloadCanvas('featureGraphic', 'orbita-feature-graphic.png')">⬇ Download Feature Graphic</button>
+  </div>
+
+  <!-- =================================================== -->
+  <!-- ICON 192×192 (PWA) -->
+  <!-- =================================================== -->
+  <div class="asset">
+    <div class="asset-header">
+      <div class="asset-title">🌐 Icon PWA</div>
+      <div class="asset-size">192×192 PNG (substitui icons/icon-192.png)</div>
+    </div>
+    <canvas id="iconPwa192" width="192" height="192" style="width:192px;height:192px"></canvas>
+    <button onclick="downloadCanvas('iconPwa192', 'icon-192.png')">⬇ Download icon-192.png</button>
+  </div>
+
+  <div class="asset">
+    <div class="asset-header">
+      <div class="asset-title">🌐 Icon PWA Large</div>
+      <div class="asset-size">512×512 PNG (substitui icons/icon-512.png)</div>
+    </div>
+    <canvas id="iconPwa512" width="512" height="512" style="width:256px;height:256px"></canvas>
+    <button onclick="downloadCanvas('iconPwa512', 'icon-512.png')">⬇ Download icon-512.png</button>
+  </div>
+
+  <!-- =================================================== -->
+  <!-- SCREENSHOT TEMPLATE (1080×2400) -->
+  <!-- =================================================== -->
+  <div class="asset">
+    <div class="asset-header">
+      <div class="asset-title">📱 Screenshot Template (Menu)</div>
+      <div class="asset-size">1080×2400 PNG</div>
+    </div>
+    <canvas id="screenshotMenu" width="1080" height="2400" style="width:180px;height:400px"></canvas>
+    <button onclick="downloadCanvas('screenshotMenu', 'screenshot-1-menu.png')">⬇ Download Screenshot 1</button>
+  </div>
+
+  <div class="asset">
+    <div class="asset-header">
+      <div class="asset-title">📱 Screenshot Template (Gameplay)</div>
+      <div class="asset-size">1080×2400 PNG</div>
+    </div>
+    <canvas id="screenshotPlay" width="1080" height="2400" style="width:180px;height:400px"></canvas>
+    <button onclick="downloadCanvas('screenshotPlay', 'screenshot-2-gameplay.png')">⬇ Download Screenshot 2</button>
+  </div>
+
+</div>
+
+<h2>📱 Screenshot Helper — capturas de tela reais do jogo</h2>
+<p>
+  Pras screenshots <strong>finais da loja</strong>, prefira capturas reais do jogo.
+  Tutorial:
+</p>
+<div class="info">
+  <ol style="margin-left: 1.5rem; line-height: 1.8;">
+    <li>Abre o jogo em <code>http://localhost:8000</code></li>
+    <li>Aperta <code>F12</code> → toggle device toolbar (<code>Ctrl+Shift+M</code>)</li>
+    <li>Escolhe um device tipo <strong>"Pixel 7"</strong> ou seta dimensões custom <strong>1080×2400</strong></li>
+    <li>Joga até o momento que quer capturar (menu, jogo com 4 nós, tela de morte com medalha, etc)</li>
+    <li>Clica nos 3 pontos no toolbar de devtools → <strong>"Capture screenshot"</strong></li>
+    <li>Tira pelo menos <strong>4 screenshots</strong>:
+      <ul style="margin-top: 0.3rem;">
+        <li>Menu principal com recorde + medalha</li>
+        <li>Gameplay com leque de 4 nós</li>
+        <li>Captura de ouro (com efeito MEGA BÔNUS se possível)</li>
+        <li>Tela de morte com "QUASE!" ou "NOVO RECORDE"</li>
+      </ul>
+    </li>
+  </ol>
+</div>
+
+<div class="footer">
+  Órbita Asset Generator · 2026
+</div>
+
+<script>
+// ============================================================
+// HELPERS
+// ============================================================
+function downloadCanvas(id, filename) {
+  const canvas = document.getElementById(id);
+  canvas.toBlob(function(blob){
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }, 'image/png');
+}
+
+document.getElementById('downloadAll').addEventListener('click', function(){
+  const list = [
+    ['iconPlay', 'orbita-icon-512.png'],
+    ['iconIOS', 'orbita-icon-1024.png'],
+    ['adaptiveFg', 'orbita-adaptive-foreground.png'],
+    ['adaptiveBg', 'orbita-adaptive-background.png'],
+    ['featureGraphic', 'orbita-feature-graphic.png'],
+    ['iconPwa192', 'icon-192.png'],
+    ['iconPwa512', 'icon-512.png'],
+    ['screenshotMenu', 'screenshot-1-menu.png'],
+    ['screenshotPlay', 'screenshot-2-gameplay.png'],
+  ];
+  let i = 0;
+  function next(){
+    if (i >= list.length) return;
+    downloadCanvas(list[i][0], list[i][1]);
+    i++;
+    setTimeout(next, 350);
+  }
+  next();
+});
+
+// ============================================================
+// SHARED DRAWING PRIMITIVES
+// ============================================================
+function drawDarkBg(ctx, w, h, opts) {
+  opts = opts || {};
+  const grad = ctx.createRadialGradient(w*0.5, h*0.55, 0, w*0.5, h*0.55, Math.max(w, h)*0.7);
+  grad.addColorStop(0, opts.midColor || '#0c1a36');
+  grad.addColorStop(0.6, opts.edgeColor || '#04060e');
+  grad.addColorStop(1, opts.outerColor || '#020308');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+}
+
+function drawStars(ctx, w, h, count, seed) {
+  // Pseudo-random with seed
+  let s = seed || 1234567;
+  function rnd(){
+    s = (s * 9301 + 49297) % 233280;
+    return s / 233280;
+  }
+  for (let i = 0; i < count; i++) {
+    const x = rnd() * w;
+    const y = rnd() * h;
+    const sz = 0.5 + rnd() * 1.8;
+    const alpha = 0.2 + rnd() * 0.5;
+    const tone = rnd();
+    ctx.fillStyle = tone < 0.85
+      ? `rgba(255,255,255,${alpha})`
+      : tone < 0.93
+        ? `rgba(160,200,255,${alpha})`
+        : `rgba(255,210,160,${alpha})`;
+    ctx.beginPath();
+    ctx.arc(x, y, sz, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawCentralNode(ctx, cx, cy, r, color) {
+  color = color || '#00f5d4';
+  // Outer glow
+  const glowGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 4);
+  glowGrad.addColorStop(0, 'rgba(0,245,212,0.45)');
+  glowGrad.addColorStop(0.5, 'rgba(0,245,212,0.12)');
+  glowGrad.addColorStop(1, 'rgba(0,245,212,0)');
+  ctx.fillStyle = glowGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 4, 0, Math.PI * 2);
+  ctx.fill();
+  // Node
+  const nodeGrad = ctx.createRadialGradient(cx - r*0.3, cy - r*0.3, 0, cx, cy, r);
+  nodeGrad.addColorStop(0, '#80ffff');
+  nodeGrad.addColorStop(0.7, color);
+  nodeGrad.addColorStop(1, '#008c75');
+  ctx.fillStyle = nodeGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawOrbitRing(ctx, cx, cy, r, color, dashScale) {
+  ctx.save();
+  ctx.strokeStyle = color || 'rgba(255,255,255,0.18)';
+  ctx.lineWidth = Math.max(1, r * 0.012);
+  ctx.setLineDash([r * 0.05 * (dashScale || 1), r * 0.07 * (dashScale || 1)]);
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawOrbitingBall(ctx, cx, cy, orbitR, ballR, angle, withTrail) {
+  if (withTrail) {
+    for (let i = 8; i >= 1; i--) {
+      const a = angle - i * 0.13;
+      const alpha = (9 - i) / 9 * 0.5;
+      const sz = ballR * (1 - i * 0.07);
+      ctx.fillStyle = `rgba(0,245,212,${alpha})`;
+      ctx.beginPath();
+      ctx.arc(cx + Math.cos(a) * orbitR, cy + Math.sin(a) * orbitR, sz, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  // Main ball
+  const bx = cx + Math.cos(angle) * orbitR;
+  const by = cy + Math.sin(angle) * orbitR;
+  // Glow
+  const ballGlow = ctx.createRadialGradient(bx, by, 0, bx, by, ballR * 3);
+  ballGlow.addColorStop(0, 'rgba(255,255,255,0.5)');
+  ballGlow.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = ballGlow;
+  ctx.beginPath();
+  ctx.arc(bx, by, ballR * 3, 0, Math.PI * 2);
+  ctx.fill();
+  // Ball
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(bx, by, ballR, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawColorNode(ctx, cx, cy, r, fillColor, glowColor) {
+  // Glow
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 3);
+  g.addColorStop(0, glowColor);
+  g.addColorStop(0.4, glowColor.replace(/[\d.]+\)$/, '0.25)'));
+  g.addColorStop(1, glowColor.replace(/[\d.]+\)$/, '0)'));
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 3, 0, Math.PI * 2);
+  ctx.fill();
+  // Node
+  const nodeGrad = ctx.createRadialGradient(cx - r*0.3, cy - r*0.3, 0, cx, cy, r);
+  nodeGrad.addColorStop(0, lightenHex(fillColor, 0.4));
+  nodeGrad.addColorStop(0.7, fillColor);
+  nodeGrad.addColorStop(1, darkenHex(fillColor, 0.4));
+  ctx.fillStyle = nodeGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function lightenHex(hex, amt) {
+  const h = parseInt(hex.replace('#',''), 16);
+  let r = (h >> 16) & 255, g = (h >> 8) & 255, b = h & 255;
+  r = Math.min(255, r + (255 - r) * amt);
+  g = Math.min(255, g + (255 - g) * amt);
+  b = Math.min(255, b + (255 - b) * amt);
+  return `rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`;
+}
+function darkenHex(hex, amt) {
+  const h = parseInt(hex.replace('#',''), 16);
+  let r = (h >> 16) & 255, g = (h >> 8) & 255, b = h & 255;
+  r = Math.max(0, r * (1 - amt));
+  g = Math.max(0, g * (1 - amt));
+  b = Math.max(0, b * (1 - amt));
+  return `rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`;
+}
+
+// ============================================================
+// ICON RENDER (compartilhado entre vários tamanhos)
+// ============================================================
+function renderIcon(ctx, w, h, opts) {
+  opts = opts || {};
+  const cx = w / 2, cy = h / 2;
+  const baseSize = Math.min(w, h);
+  const orbitR = baseSize * 0.32;
+  const nodeR = baseSize * 0.085;
+  const ballR = baseSize * 0.058;
+
+  // Background
+  if (!opts.transparentBg) {
+    drawDarkBg(ctx, w, h);
+    if (!opts.skipStars) drawStars(ctx, w, h, Math.floor(baseSize / 14), 42);
+  }
+
+  // Orbit ring
+  drawOrbitRing(ctx, cx, cy, orbitR, 'rgba(255,255,255,0.22)', baseSize / 64);
+
+  // Center node
+  drawCentralNode(ctx, cx, cy, nodeR);
+
+  // Orbiting ball at upper-right with trail
+  drawOrbitingBall(ctx, cx, cy, orbitR, ballR, -Math.PI * 0.4, true);
+
+  // Subtle vignette
+  if (!opts.transparentBg) {
+    const vignGrad = ctx.createRadialGradient(cx, cy, baseSize * 0.3, cx, cy, baseSize * 0.7);
+    vignGrad.addColorStop(0, 'rgba(0,0,0,0)');
+    vignGrad.addColorStop(1, 'rgba(0,0,0,0.45)');
+    ctx.fillStyle = vignGrad;
+    ctx.fillRect(0, 0, w, h);
+  }
+}
+
+// ============================================================
+// ICON 512 (Play Store)
+// ============================================================
+(function(){
+  const c = document.getElementById('iconPlay');
+  const ctx = c.getContext('2d');
+  renderIcon(ctx, 512, 512);
+})();
+
+// ============================================================
+// ICON 1024 (App Store iOS)
+// ============================================================
+(function(){
+  const c = document.getElementById('iconIOS');
+  const ctx = c.getContext('2d');
+  renderIcon(ctx, 1024, 1024);
+})();
+
+// ============================================================
+// ADAPTIVE ICON FG (transparent bg, smaller orbit pra zona segura)
+// ============================================================
+(function(){
+  const c = document.getElementById('adaptiveFg');
+  const ctx = c.getContext('2d');
+  const w = 432, h = 432;
+  // Adaptive icons tem zona segura central de 66% (Android usa 264x264 visível)
+  // Mas a logo deve ser ainda menor (~50%) pra qualquer crop funcionar
+  ctx.clearRect(0, 0, w, h);
+  const cx = w/2, cy = h/2;
+  const orbitR = w * 0.20;
+  const nodeR = w * 0.055;
+  const ballR = w * 0.038;
+
+  drawOrbitRing(ctx, cx, cy, orbitR, 'rgba(255,255,255,0.35)', 8);
+  drawCentralNode(ctx, cx, cy, nodeR);
+  drawOrbitingBall(ctx, cx, cy, orbitR, ballR, -Math.PI * 0.4, true);
+})();
+
+// ============================================================
+// ADAPTIVE ICON BG
+// ============================================================
+(function(){
+  const c = document.getElementById('adaptiveBg');
+  const ctx = c.getContext('2d');
+  drawDarkBg(ctx, 432, 432);
+  drawStars(ctx, 432, 432, 28, 99);
+})();
+
+// ============================================================
+// PWA ICON 192 + 512
+// ============================================================
+(function(){
+  const c192 = document.getElementById('iconPwa192');
+  const ctx192 = c192.getContext('2d');
+  renderIcon(ctx192, 192, 192);
+
+  const c512 = document.getElementById('iconPwa512');
+  const ctx512 = c512.getContext('2d');
+  renderIcon(ctx512, 512, 512);
+})();
+
+// ============================================================
+// FEATURE GRAPHIC 1024×500
+// ============================================================
+(function(){
+  const c = document.getElementById('featureGraphic');
+  const ctx = c.getContext('2d');
+  const w = 1024, h = 500;
+
+  // BG
+  drawDarkBg(ctx, w, h);
+  drawStars(ctx, w, h, 80, 1234);
+
+  // RIGHT SIDE: visual scene (orbit + 4 colored nodes)
+  const sceneCx = w * 0.78;
+  const sceneCy = h * 0.5;
+  const orbitR = h * 0.18;
+  const nodeR = h * 0.05;
+  const ballR = h * 0.035;
+
+  // Connecting lines from center to 4 nodes
+  const tiers = [
+    { angle: -1.85 - Math.PI/2, color: '#2ed573', glow: 'rgba(46,213,115,0.6)' },  // green LL
+    { angle: -0.55 - Math.PI/2, color: '#ff4757', glow: 'rgba(255,71,87,0.6)' },   // red UL
+    { angle:  0.08 - Math.PI/2, color: '#ffd32a', glow: 'rgba(255,211,42,0.7)' },  // gold up
+    { angle:  1.40 - Math.PI/2, color: '#70a1ff', glow: 'rgba(112,161,255,0.6)' }, // blue R
+  ];
+  const branchR = h * 0.32;
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.lineWidth = 1.5;
+  for (const t of tiers) {
+    const bx = sceneCx + Math.cos(t.angle) * branchR;
+    const by = sceneCy + Math.sin(t.angle) * branchR;
+    ctx.beginPath();
+    ctx.moveTo(sceneCx, sceneCy);
+    ctx.lineTo(bx, by);
+    ctx.stroke();
+    // Branch node
+    drawColorNode(ctx, bx, by, nodeR, t.color, t.glow);
+  }
+
+  // Center: orbit + ball + central node
+  drawOrbitRing(ctx, sceneCx, sceneCy, orbitR, 'rgba(255,255,255,0.20)', 8);
+  drawCentralNode(ctx, sceneCx, sceneCy, nodeR * 1.2);
+  drawOrbitingBall(ctx, sceneCx, sceneCy, orbitR, ballR, -Math.PI * 0.4, true);
+
+  // LEFT SIDE: title + tagline
+  const titleX = w * 0.05;
+  const titleY = h * 0.42;
+
+  // Title "ÓRBITA" with gradient
+  ctx.save();
+  ctx.font = 'bold 130px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  const titleGrad = ctx.createLinearGradient(0, titleY - 65, 0, titleY + 65);
+  titleGrad.addColorStop(0, '#ffffff');
+  titleGrad.addColorStop(0.55, '#80f5e8');
+  titleGrad.addColorStop(1, '#00f5d4');
+  ctx.fillStyle = titleGrad;
+  ctx.shadowColor = '#00f5d4';
+  ctx.shadowBlur = 32;
+  // Letter-spacing manual
+  const letters = 'ÓRBITA'.split('');
+  let x = titleX;
+  for (const l of letters) {
+    ctx.fillText(l, x, titleY);
+    x += ctx.measureText(l).width + 8;
+  }
+  ctx.shadowBlur = 0;
+  ctx.restore();
+
+  // Decorative line under title
+  ctx.save();
+  const lineY = titleY + 78;
+  const lineW = 280;
+  const lineGrad = ctx.createLinearGradient(titleX, lineY, titleX + lineW, lineY);
+  lineGrad.addColorStop(0, 'rgba(0,245,212,1)');
+  lineGrad.addColorStop(1, 'rgba(0,245,212,0)');
+  ctx.strokeStyle = lineGrad;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(titleX, lineY);
+  ctx.lineTo(titleX + lineW, lineY);
+  ctx.stroke();
+  ctx.restore();
+
+  // Tagline
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.font = '24px -apple-system, BlinkMacSystemFont, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('UM TOQUE.   SOLTE.   NÃO ERRE.', titleX, titleY + 110);
+
+  // Subtitle
+  ctx.fillStyle = 'rgba(160,200,255,0.55)';
+  ctx.font = '16px -apple-system, sans-serif';
+  ctx.fillText('Salto infinito · Recordes · Mecânica simples, dificuldade brutal', titleX, titleY + 140);
+})();
+
+// ============================================================
+// SCREENSHOT TEMPLATES (1080×2400)
+// ============================================================
+function screenshotMenuRender() {
+  const c = document.getElementById('screenshotMenu');
+  const ctx = c.getContext('2d');
+  const w = 1080, h = 2400;
+
+  // BG
+  drawDarkBg(ctx, w, h);
+  drawStars(ctx, w, h, 200, 7777);
+
+  // Demo orbit no topo
+  const demoCx = w / 2;
+  const demoCy = h * 0.16;
+  const demoR = w * 0.10;
+
+  // Glow ambiente
+  const glowGrad = ctx.createRadialGradient(demoCx, demoCy, 0, demoCx, demoCy, demoR * 2.4);
+  glowGrad.addColorStop(0, 'rgba(0,245,212,0.18)');
+  glowGrad.addColorStop(1, 'rgba(0,245,212,0)');
+  ctx.fillStyle = glowGrad;
+  ctx.beginPath();
+  ctx.arc(demoCx, demoCy, demoR * 2.4, 0, Math.PI * 2);
+  ctx.fill();
+
+  drawOrbitRing(ctx, demoCx, demoCy, demoR, 'rgba(255,255,255,0.18)', 4);
+  drawCentralNode(ctx, demoCx, demoCy, w * 0.014);
+  drawOrbitingBall(ctx, demoCx, demoCy, demoR, w * 0.011, -Math.PI * 0.3, true);
+
+  // Title "ÓRBITA"
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = 'bold 200px -apple-system, sans-serif';
+  const titleY = h * 0.34;
+  const grad = ctx.createLinearGradient(0, titleY - 100, 0, titleY + 100);
+  grad.addColorStop(0, '#ffffff');
+  grad.addColorStop(0.55, '#80f5e8');
+  grad.addColorStop(1, '#00f5d4');
+  ctx.fillStyle = grad;
+  ctx.shadowColor = '#00f5d4';
+  ctx.shadowBlur = 60;
+  // letter spacing
+  const letters = 'ÓRBITA'.split('');
+  const widths = letters.map(l => ctx.measureText(l).width);
+  const spacing = 16;
+  const totalW = widths.reduce((a,b) => a+b, 0) + spacing * (letters.length - 1);
+  let cx = w/2 - totalW/2;
+  for (let i = 0; i < letters.length; i++) {
+    ctx.fillText(letters[i], cx + widths[i]/2, titleY);
+    cx += widths[i] + spacing;
+  }
+  ctx.shadowBlur = 0;
+  ctx.restore();
+
+  // Subtitle
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.font = '36px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Um toque. Solte. Não erre.', w/2, h * 0.42);
+
+  // RECORDE card
+  const cardW = w * 0.78;
+  const cardH = h * 0.085;
+  const cardX = (w - cardW) / 2;
+  const cardY = h * 0.49;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  roundRect(ctx, cardX, cardY, cardW, cardH, 24); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,211,42,0.8)';
+  ctx.lineWidth = 4;
+  roundRect(ctx, cardX, cardY, cardW, cardH, 24); ctx.stroke();
+  // Medal emoji + RECORDE + valor
+  ctx.font = '90px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#fff';
+  ctx.fillText('🥇', cardX + 40, cardY + cardH/2);
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  ctx.font = '32px -apple-system, sans-serif';
+  ctx.fillText('RECORDE', cardX + cardW * 0.62, cardY + cardH * 0.32);
+  ctx.fillStyle = '#ffd32a';
+  ctx.shadowColor = '#ffaa00';
+  ctx.shadowBlur = 24;
+  ctx.font = 'bold 110px -apple-system, sans-serif';
+  ctx.fillText('87', cardX + cardW * 0.62, cardY + cardH * 0.72);
+  ctx.shadowBlur = 0;
+
+  // Streak
+  ctx.fillStyle = 'rgba(255,165,0,0.95)';
+  ctx.shadowColor = '#ff8800';
+  ctx.shadowBlur = 18;
+  ctx.font = 'bold 38px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('🔥 5 DIAS SEGUIDOS', w/2, h * 0.62);
+  ctx.shadowBlur = 0;
+
+  // CTA
+  ctx.fillStyle = '#00f5d4';
+  ctx.shadowColor = '#00f5d4';
+  ctx.shadowBlur = 32;
+  ctx.font = 'bold 56px -apple-system, sans-serif';
+  ctx.fillText('▶   TOQUE PARA JOGAR   ◀', w/2, h * 0.78);
+  ctx.shadowBlur = 0;
+
+  // Hint
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.font = '28px -apple-system, sans-serif';
+  ctx.fillText('toque em qualquer lugar', w/2, h * 0.80 + 20);
+}
+
+function screenshotPlayRender() {
+  const c = document.getElementById('screenshotPlay');
+  const ctx = c.getContext('2d');
+  const w = 1080, h = 2400;
+
+  // BG (mid-game tier 3 - violeta)
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, '#0a0420');
+  grad.addColorStop(0.5, '#1c1060');
+  grad.addColorStop(1, '#0a0420');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+  drawStars(ctx, w, h, 200, 9999);
+
+  // Score topo
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.font = 'bold 200px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText('108', w/2 + 8, h * 0.07 + 8);
+  ctx.fillStyle = '#ffffff';
+  ctx.shadowColor = '#000';
+  ctx.shadowBlur = 16;
+  ctx.fillText('108', w/2, h * 0.07);
+  ctx.shadowBlur = 0;
+
+  // Pause btn (canto)
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.beginPath();
+  ctx.arc(w - 100, 130, 60, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(w - 100, 130, 60, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(w - 115, 110, 8, 40);
+  ctx.fillRect(w - 95, 110, 8, 40);
+
+  // Cena: ball orbiting central node + 4 sibling nodes
+  const sceneCx = w * 0.5;
+  const sceneCy = h * 0.55;
+  const orbitR = 130;
+  const branchR = 380;
+
+  // Connecting lines (subtle)
+  ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+  ctx.lineWidth = 2;
+  const branches = [
+    { angle: -1.85 - Math.PI/2, color: '#2ed573', glow: 'rgba(46,213,115,0.5)' },
+    { angle: -0.55 - Math.PI/2, color: '#ff4757', glow: 'rgba(255,71,87,0.5)' },
+    { angle:  0.08 - Math.PI/2, color: '#ffd32a', glow: 'rgba(255,211,42,0.6)', far: 1.15 },
+    { angle:  1.40 - Math.PI/2, color: '#70a1ff', glow: 'rgba(112,161,255,0.5)' },
+  ];
+  for (const b of branches) {
+    const dist = branchR * (b.far || 1);
+    const bx = sceneCx + Math.cos(b.angle) * dist;
+    const by = sceneCy + Math.sin(b.angle) * dist;
+    ctx.beginPath();
+    ctx.moveTo(sceneCx, sceneCy);
+    ctx.lineTo(bx, by);
+    ctx.stroke();
+    drawColorNode(ctx, bx, by, 38, b.color, b.glow);
+  }
+
+  // Central (capturado)
+  drawOrbitRing(ctx, sceneCx, sceneCy, orbitR, 'rgba(255,255,255,0.30)', 12);
+  drawCentralNode(ctx, sceneCx, sceneCy, 32);
+
+  // Ball orbiting
+  drawOrbitingBall(ctx, sceneCx, sceneCy, orbitR, 28, -Math.PI * 0.3, true);
+
+  // Skull face on ball
+  const ballX = sceneCx + Math.cos(-Math.PI * 0.3) * orbitR;
+  const ballY = sceneCy + Math.sin(-Math.PI * 0.3) * orbitR;
+  ctx.fillStyle = '#000';
+  ctx.beginPath(); ctx.arc(ballX - 9, ballY - 4, 3, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(ballX + 9, ballY - 4, 3, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(ballX, ballY + 8, 4, Math.PI, 0); ctx.fill();
+
+  // MEGA BÔNUS popup floating
+  ctx.fillStyle = '#ffd700';
+  ctx.shadowColor = '#ffaa00';
+  ctx.shadowBlur = 30;
+  ctx.font = 'bold 64px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('⭐ MEGA BÔNUS! +25', w/2, h * 0.30);
+  ctx.shadowBlur = 0;
+
+  // COMBO x4 popup
+  ctx.fillStyle = '#00f5d4';
+  ctx.shadowColor = '#00f5d4';
+  ctx.shadowBlur = 24;
+  ctx.font = 'bold 52px -apple-system, sans-serif';
+  ctx.fillText('🔥 COMBO 4! 🔥', w/2, h * 0.35);
+  ctx.shadowBlur = 0;
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+screenshotMenuRender();
+screenshotPlayRender();
+</script>
+
+</body>
+</html>
