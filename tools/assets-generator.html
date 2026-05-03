@@ -843,6 +843,51 @@ function roundRect(ctx, x, y, w, h, r) {
 
 screenshotMenuRender();
 screenshotPlayRender();
+
+// ============================================================
+// EXPORT MODE: ?export=menu|play renderiza o canvas escolhido
+// fullscreen fixed em (0,0) pra Edge headless capturar limpo.
+// Ex: assets-generator.html?export=menu  -> screenshot 1080x2400
+// ============================================================
+(function(){
+  const params = new URLSearchParams(location.search);
+  const exportType = params.get('export');
+  if (!exportType) return;
+
+  const canvasIdMap = { menu: 'screenshotMenu', play: 'screenshotPlay', feature: 'featureGraphic' };
+  const id = canvasIdMap[exportType];
+  if (!id) return;
+
+  const target = document.getElementById(id);
+  if (!target) return;
+
+  // Tira o canvas do DOM antes de limpar (ele tem o conteudo bitmap renderizado).
+  // Limpa body inteiro e re-adiciona soh o canvas. Esconder com display:none
+  // tambem esconde pais; remover e re-anexar evita esse problema.
+  if (target.parentNode) target.parentNode.removeChild(target);
+  document.body.innerHTML = '';
+  document.body.appendChild(target);
+
+  document.documentElement.style.margin = '0';
+  document.documentElement.style.padding = '0';
+  document.documentElement.style.background = '#000';
+  document.body.style.margin = '0';
+  document.body.style.padding = '0';
+  document.body.style.background = '#000';
+  document.body.style.overflow = 'hidden';
+
+  target.style.display = 'block';
+  target.style.position = 'fixed';
+  target.style.top = '0';
+  target.style.left = '0';
+  target.style.width = target.width + 'px';
+  target.style.height = target.height + 'px';
+  target.style.transform = 'none';
+  target.style.margin = '0';
+
+  // Sinal pra Edge headless saber que terminou
+  document.title = 'EXPORT-READY-' + exportType;
+})();
 </script>
 
 </body>

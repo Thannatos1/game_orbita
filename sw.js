@@ -1,4 +1,4 @@
-const CACHE_NAME = 'orbita-pwa-v95';
+const CACHE_NAME = 'orbita-pwa-v109';
 const SUPABASE_SDK_URL = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0/dist/umd/supabase.min.js';
 const SENTRY_SDK_URL = 'https://browser.sentry-cdn.com/7.119.2/bundle.min.js';
 const APP_SHELL = [
@@ -8,6 +8,7 @@ const APP_SHELL = [
   './sw.js',
   './js/sentry_init.js',
   './js/app_bootstrap.js',
+  './js/sw_register_inline.js',
   './js/core.js',
   './js/services.js',
   './js/pwa.js',
@@ -16,11 +17,14 @@ const APP_SHELL = [
   './js/render.js',
   './js/gameplay_ui.js',
   './js/i18n.js',
+  './js/audio_panel.js',
   './js/flappy_radical_patch.js',
   './js/main.js',
   './privacy-policy.html',
   './icons/icon-192.png',
-  './icons/icon-512.png'
+  './icons/icon-512.png',
+  './screenshots/screen-menu.png',
+  './screenshots/screen-play.png'
 ];
 
 async function precacheAll(cache) {

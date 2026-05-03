@@ -237,30 +237,59 @@
   // ---------- HIDE SPLASH ----------
   // O splash em index.html cobre a tela enquanto Supabase SDK + scripts
   // carregam. Quando este patch executa, tudo critico ja foi parseado.
-  // Esperamos a tela renderizar pelo menos 1 frame antes de esconder
-  // pra garantir que nao tem flash de tela vazia.
+  // Splash com tap-to-start: necessario pra audio inicializar (browsers
+  // exigem user gesture). Splash atualiza texto de "carregando..." pra
+  // "TOQUE PARA INICIAR" quando o JS termina de carregar, depois espera o tap.
   function _hideSplash(){
     const el = document.getElementById('orbita-splash');
     if (!el) return;
     el.classList.add('hidden');
-    // Remove do DOM apos a transicao de fade pra liberar memoria
     setTimeout(function(){
       if (el.parentNode) el.parentNode.removeChild(el);
     }, 600);
   }
-  // Espera ao menos 2 frames de render + 150ms pra garantir que
-  // o canvas ja desenhou algo (main.js inicia o loop apos o patch)
-  function _scheduleSplashHide(){
+  function _armSplashTapToStart(){
+    const el = document.getElementById('orbita-splash');
+    if (!el) return;
+    // Troca texto de "carregando..." pra "TOQUE PARA INICIAR"
+    const loading = el.querySelector('.splash-loading');
+    if (loading) {
+      const lang = (navigator.language || 'pt').toLowerCase();
+      const msg = lang.indexOf('pt') === 0 ? 'TOQUE PARA INICIAR'
+                : lang.indexOf('es') === 0 ? 'TOCA PARA EMPEZAR'
+                : 'TAP TO START';
+      loading.innerHTML = '<span class="splash-cta">' + msg + '</span>';
+    }
+    // Tap em qualquer lugar do splash: inicializa audio e esconde
+    function _onSplashTap(){
+      el.removeEventListener('pointerdown', _onSplashTap);
+      el.removeEventListener('touchstart', _onSplashTap);
+      el.removeEventListener('click', _onSplashTap);
+      try { if (typeof initAudio === 'function') initAudio(); } catch(e) {}
+      _hideSplash();
+    }
+    el.addEventListener('pointerdown', _onSplashTap, { passive: true });
+    el.addEventListener('touchstart', _onSplashTap, { passive: true });
+    el.addEventListener('click', _onSplashTap, { passive: true });
+    // Failsafe: se 30s sem tap (ex: usuario deixou aberto e foi fazer outra coisa),
+    // esconde mesmo assim pra nao travar o jogo. Audio so vai funcionar quando
+    // ele tocar em algum botao do menu (graca aos listeners globais em core.js).
+    setTimeout(function(){
+      if (el.parentNode) _onSplashTap();
+    }, 30000);
+  }
+  // Espera ao menos 2 frames de render + 150ms pro canvas ja ter desenhado algo
+  function _scheduleSplashTapReady(){
     requestAnimationFrame(function(){
       requestAnimationFrame(function(){
-        setTimeout(_hideSplash, 150);
+        setTimeout(_armSplashTapToStart, 150);
       });
     });
   }
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
-    _scheduleSplashHide();
+    _scheduleSplashTapReady();
   } else {
-    window.addEventListener('load', _scheduleSplashHide, { once: true });
+    window.addEventListener('load', _scheduleSplashTapReady, { once: true });
   }
 
   // ---------- TUNING ----------
@@ -299,12 +328,31 @@
   let _menuStars = null;          // gerado uma vez, persiste
   let _menuDayStreak = 1;
 
+  // Detecta producao (qualquer host que nao seja localhost/127.0.0.1).
+  // Em prod: botao 🧪 nao renderiza, nao responde a tap, _debugMode forcado false.
+  // Mantem o codigo de debug intacto pra dev local continuar funcionando.
+  const _IS_PROD = (function(){
+    try {
+      const h = (location && location.hostname) || '';
+      return h !== 'localhost' && h !== '127.0.0.1' && h !== '';
+    } catch(e) { return true; }
+  })();
+
   // Modo debug (sem morte). Persistido em localStorage pra sobreviver reload.
+  // Em prod: SEMPRE false, ignora valor persistido (impede tester com flag antiga
+  // ativada de continuar invencivel apos publicacao).
   let _debugMode = false;
-  try {
-    _debugMode = localStorage.getItem('orbita_debug_mode') === '1';
-  } catch(e) {}
+  if (!_IS_PROD) {
+    try {
+      _debugMode = localStorage.getItem('orbita_debug_mode') === '1';
+    } catch(e) {}
+  } else {
+    // Limpa valor persistido em prod pra blindar contra usuarios que rodaram
+    // o jogo em dev e depois acessaram a versao live.
+    try { localStorage.removeItem('orbita_debug_mode'); } catch(e) {}
+  }
   function _toggleDebug(){
+    if (_IS_PROD) return;  // no-op em prod
     _debugMode = !_debugMode;
     try { localStorage.setItem('orbita_debug_mode', _debugMode ? '1' : '0'); } catch(e) {}
   }
@@ -343,6 +391,50 @@
   const _AC_SALT = 'orb1ta_p4tch_2026_kY9_xL4z';
   let _expectedScore = 0;
   let _cheatFlagged = false;
+
+  // ---------- BOT / HEADLESS DETECTION ----------
+  // Detecta automacao (Puppeteer, Playwright, Selenium, headless Chrome).
+  // Calcula 1x no boot e cacheia. Anexado ao payload de game_end pro
+  // server poder filtrar / banir / nao-rankear submissoes de bot.
+  // Heuristicas combinadas pra reduzir falso positivo de browsers reais.
+  const _botSignals = (function(){
+    const sig = { score: 0, reasons: [] };
+    try {
+      // Sinal forte: WebDriver flag (Selenium, Puppeteer com headless padrao)
+      if (navigator.webdriver === true) { sig.score += 4; sig.reasons.push('webdriver'); }
+      // UA com marcas de headless/automacao
+      const ua = (navigator.userAgent || '').toLowerCase();
+      if (/headlesschrome|puppeteer|playwright|phantomjs|selenium|cypress|jsdom|nightmare|electron(?!.*nw\.js)/i.test(ua)) {
+        sig.score += 4; sig.reasons.push('ua_automation');
+      }
+      // Chrome headless tipico tem navigator.languages vazio
+      if (!navigator.languages || navigator.languages.length === 0) { sig.score += 2; sig.reasons.push('no_languages'); }
+      // Mobile real tem maxTouchPoints > 0; desktop legitimo tambem mostra 0,
+      // entao soh penalizamos se UA disser mobile e maxTouchPoints for 0.
+      if (/android|iphone|ipad|ipod|mobile/i.test(ua) && (navigator.maxTouchPoints || 0) === 0) {
+        sig.score += 3; sig.reasons.push('mobile_ua_no_touch');
+      }
+      // Headless Chrome antigo: window.outerHeight === 0
+      if (typeof window !== 'undefined' && window.outerHeight === 0 && window.outerWidth === 0) {
+        sig.score += 2; sig.reasons.push('zero_outer_size');
+      }
+      // Permissions API quirky em headless
+      if (navigator.permissions && typeof navigator.permissions.query === 'function') {
+        navigator.permissions.query({ name: 'notifications' }).then(function(p){
+          // Em headless Chrome, notification permission retorna 'denied' mesmo sem prompt
+          if (p && p.state === 'denied' && Notification && Notification.permission === 'default') {
+            sig.score += 1; sig.reasons.push('perm_inconsistency');
+          }
+        }).catch(function(){});
+      }
+      // Plugins sempre vazio em headless chromium
+      if (navigator.plugins && navigator.plugins.length === 0 && /chrome/i.test(ua) && !/mobile/i.test(ua)) {
+        sig.score += 1; sig.reasons.push('chrome_no_plugins');
+      }
+    } catch(e) { sig.reasons.push('detection_error'); }
+    return sig;
+  })();
+  function _isLikelyBot(){ return _botSignals.score >= 4; }
 
   // Hash FNV-1a curto pra assinatura
   function _hash(s){
@@ -1705,31 +1797,35 @@
     }
 
     // ---------- Debug btn (canto superior esquerdo) ----------
+    // Em PROD: completamente oculto. Soh aparece em dev (localhost).
     // Quando OFF: emoji bem fraco (precisa procurar)
     // Quando ON: glow vermelho + label
-    if (_debugMode) {
-      X.save();
-      X.globalAlpha = 0.85;
-      X.fillStyle = '#ff5577';
-      X.shadowColor = '#ff0044';
-      X.shadowBlur = 10;
-      X.font = '18px sans-serif';
-      X.textAlign = 'left';
-      X.fillText('🧪', 14, 26);
-      X.font = 'bold 11px -apple-system, system-ui, sans-serif';
-      X.fillText(_t('debug_label'), 38, 27);
-      X.restore();
-    } else {
-      X.globalAlpha = 0.18;
-      X.fillStyle = '#ffffff';
-      X.font = '18px sans-serif';
-      X.textAlign = 'left';
-      X.fillText('🧪', 14, 26);
-      X.globalAlpha = 1;
+    if (!_IS_PROD) {
+      if (_debugMode) {
+        X.save();
+        X.globalAlpha = 0.85;
+        X.fillStyle = '#ff5577';
+        X.shadowColor = '#ff0044';
+        X.shadowBlur = 10;
+        X.font = '18px sans-serif';
+        X.textAlign = 'left';
+        X.fillText('🧪', 14, 26);
+        X.font = 'bold 11px -apple-system, system-ui, sans-serif';
+        X.fillText(_t('debug_label'), 38, 27);
+        X.restore();
+      } else {
+        X.globalAlpha = 0.18;
+        X.fillStyle = '#ffffff';
+        X.font = '18px sans-serif';
+        X.textAlign = 'left';
+        X.fillText('🧪', 14, 26);
+        X.globalAlpha = 1;
+      }
     }
 
-    // Banner central pulsante quando debug ON (avisa que nao morre)
-    if (_debugMode) {
+    // Banner central pulsante quando debug ON (avisa que nao morre).
+    // Tambem ocultado em prod (mas _debugMode ja e' false em prod, redundancia segura).
+    if (_debugMode && !_IS_PROD) {
       const bannerPulse = 0.7 + Math.sin(t * 4) * 0.3;
       X.save();
       X.globalAlpha = bannerPulse;
@@ -1744,13 +1840,16 @@
 
     // ---------- Hit areas ----------
     if (typeof menuBtnAreas !== 'undefined') {
-      // Debug btn (top-left) - PRIMEIRO pra ter prioridade
-      menuBtnAreas.push({
-        x: 0, y: 4, w: 90, h: 44,
-        action: function(){
-          _toggleDebug();
-        }
-      });
+      // Debug btn (top-left) - PRIMEIRO pra ter prioridade.
+      // Em PROD: NAO registra hit area (botao nao existe + tap nada faz).
+      if (!_IS_PROD) {
+        menuBtnAreas.push({
+          x: 0, y: 4, w: 90, h: 44,
+          action: function(){
+            _toggleDebug();
+          }
+        });
+      }
       // Lang toggle btn (top-right, esquerda do daltonismo)
       menuBtnAreas.push({
         x: W - 140, y: 4, w: 50, h: 44,
@@ -1765,11 +1864,19 @@
           _toggleColorBlind();
         }
       });
-      // Mute btn (top-right)
+      // Speaker btn (top-right): abre painel de volume com sliders.
+      // Tap longo (>500ms) faz toggle mute direto. Tap normal abre painel.
+      let _speakerDownT = 0;
       menuBtnAreas.push({
         x: W - 50, y: 4, w: 50, h: 44,
         action: function(){
-          if (typeof toggleMute === 'function') toggleMute();
+          // Painel de audio (se disponivel) - abertura padrao
+          if (window.OrbitaAudioPanel && typeof window.OrbitaAudioPanel.open === 'function') {
+            window.OrbitaAudioPanel.open();
+          } else if (typeof toggleMute === 'function') {
+            // Fallback se painel nao carregou: toggle mute direto
+            toggleMute();
+          }
         }
       });
       // Tap-anywhere = play
@@ -2436,7 +2543,11 @@
             max_combo: _runMaxCombo,
             had_near_miss: !!_nearMissData,
             near_miss_tier: _nearMissData ? _nearMissData.tier : null,
-            cheat_flagged: _cheatFlagged
+            cheat_flagged: _cheatFlagged,
+            // Bot detection (server-side rejeita score se score >= 4)
+            bot_score: _botSignals.score,
+            bot_reasons: _botSignals.reasons,
+            is_likely_bot: _isLikelyBot()
           };
           // Assinatura HMAC-like pra validacao server-side futura
           eventPayload._sig = _signEvent(eventPayload);

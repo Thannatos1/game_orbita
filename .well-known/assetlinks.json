@@ -2,7 +2,7 @@
   "relation": ["delegate_permission/common.handle_all_urls"],
   "target": {
     "namespace": "android_app",
-    "package_name": "SUBSTITUIR_PELO_PACKAGE_NAME",
-    "sha256_cert_fingerprints": ["SUBSTITUIR_PELO_SHA256_DO_PWABUILDER"]
+    "package_name": "app.lastorbit.game",
+    "sha256_cert_fingerprints": ["DF:DC:0A:1D:BC:B2:E2:0C:AD:D8:66:74:34:36:DC:79:92:87:64:05:FF:6A:BB:69:EA:BD:E4:06:F1:43:C5:B8"]
   }
 }]

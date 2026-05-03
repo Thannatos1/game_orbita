@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Last Orbit — Icon Generator</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:#0a0a16; color:#e0e0ff;
+    font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    padding:20px; min-height:100vh;
+  }
+  h1 { font-size:24px; font-weight:600; margin-bottom:6px; color:#80f5e8; }
+  .sub { color:rgba(255,255,255,.6); font-size:13px; margin-bottom:24px; }
+
+  .layout {
+    display:grid;
+    grid-template-columns: 320px 1fr;
+    gap:30px;
+    max-width:1200px;
+  }
+  .controls {
+    background:rgba(255,255,255,.04);
+    border:1px solid rgba(128,245,232,.15);
+    border-radius:12px;
+    padding:20px;
+    height:fit-content;
+  }
+  .control {
+    margin-bottom:16px;
+  }
+  .control label {
+    display:block;
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    color:rgba(128,245,232,.85);
+    margin-bottom:6px;
+  }
+  .control input[type=range] {
+    width:100%;
+    accent-color:#00f5d4;
+  }
+  .control input[type=color] {
+    width:60px; height:32px;
+    background:transparent; border:1px solid rgba(255,255,255,.2);
+    border-radius:6px; cursor:pointer;
+  }
+  .control .val {
+    font-size:12px; color:rgba(255,255,255,.5);
+    margin-left:8px;
+  }
+  .control .row {
+    display:flex; align-items:center; gap:8px;
+  }
+
+  .previews {
+    display:flex; flex-direction:column; gap:24px;
+  }
+  .preview-row {
+    display:flex; align-items:center; gap:20px;
+    background:rgba(255,255,255,.03);
+    padding:20px;
+    border-radius:12px;
+  }
+  .preview-row canvas {
+    background:#000; border-radius:18%;
+    box-shadow:0 8px 32px rgba(0,245,212,.15);
+  }
+  .preview-info {
+    flex:1;
+  }
+  .preview-info h3 {
+    color:#80f5e8; margin-bottom:6px; font-size:16px;
+  }
+  .preview-info p {
+    font-size:12px; color:rgba(255,255,255,.6);
+    margin-bottom:12px;
+  }
+  .preview-info button {
+    background:#00f5d4; color:#000;
+    border:none; padding:10px 16px;
+    border-radius:8px; font-weight:600;
+    cursor:pointer; font-size:13px;
+  }
+  .preview-info button:hover { background:#80f5e8; }
+
+  .actions {
+    margin-top:16px; display:flex; gap:8px;
+  }
+  .actions button {
+    flex:1; padding:10px;
+    background:rgba(0,245,212,.15);
+    color:#80f5e8;
+    border:1px solid rgba(0,245,212,.3);
+    border-radius:6px; cursor:pointer;
+    font-size:12px; font-weight:600;
+  }
+  .actions button:hover { background:rgba(0,245,212,.25); }
+
+  .preset-row {
+    display:flex; gap:6px; flex-wrap:wrap;
+    margin-bottom:16px;
+  }
+  .preset-row button {
+    flex:1; min-width:70px;
+    padding:8px 4px;
+    background:rgba(255,255,255,.05);
+    color:#e0e0ff;
+    border:1px solid rgba(255,255,255,.1);
+    border-radius:6px; cursor:pointer;
+    font-size:11px;
+  }
+  .preset-row button:hover { background:rgba(0,245,212,.15); border-color:rgba(0,245,212,.3); }
+
+  hr {
+    border:none; border-top:1px solid rgba(255,255,255,.08);
+    margin:16px 0;
+  }
+</style>
+</head>
+<body>
+
+<h1>Last Orbit · Icon Generator</h1>
+<p class="sub">Gera ícones 192×192 e 512×512 pra PWA / Play Store. Ajuste os parâmetros, exporte os PNGs.</p>
+
+<div class="layout">
+  <div class="controls">
+
+    <div class="preset-row">
+      <button onclick="loadPreset('moon')">🌙 Lua</button>
+      <button onclick="loadPreset('orbital')">🪐 Orbital</button>
+      <button onclick="loadPreset('happy')">😊 Sorriso</button>
+      <button onclick="loadPreset('intense')">⚡ Intenso</button>
+    </div>
+
+    <hr>
+
+    <div class="control">
+      <label>Tamanho da bola <span class="val" id="ballR-val">38</span></label>
+      <input type="range" id="ballR" min="20" max="50" value="38" step="1">
+    </div>
+
+    <div class="control">
+      <label>Cor da bola</label>
+      <div class="row">
+        <input type="color" id="ballColor" value="#ffffff">
+        <span class="val" id="ballColor-val">#ffffff</span>
+      </div>
+    </div>
+
+    <div class="control">
+      <label>Intensidade do glow <span class="val" id="glowI-val">75</span></label>
+      <input type="range" id="glowI" min="0" max="100" value="75" step="1">
+    </div>
+
+    <div class="control">
+      <label>Cor do glow</label>
+      <div class="row">
+        <input type="color" id="glowColor" value="#00f5d4">
+        <span class="val" id="glowColor-val">#00f5d4</span>
+      </div>
+    </div>
+
+    <div class="control">
+      <label>Cor do fundo</label>
+      <div class="row">
+        <input type="color" id="bgColor" value="#05050f">
+        <span class="val" id="bgColor-val">#05050f</span>
+      </div>
+    </div>
+
+    <div class="control">
+      <label>Anel orbital <span class="val" id="ringO-val">25</span>% opacidade</label>
+      <input type="range" id="ringO" min="0" max="100" value="25" step="5">
+    </div>
+
+    <hr>
+
+    <div class="control">
+      <label>Sorriso <span class="val" id="smile-val">8</span></label>
+      <input type="range" id="smile" min="0" max="20" value="8" step="1">
+    </div>
+
+    <div class="control">
+      <label>Tamanho dos olhos <span class="val" id="eyeS-val">3</span></label>
+      <input type="range" id="eyeS" min="0" max="6" value="3" step="1">
+    </div>
+
+    <div class="actions">
+      <button onclick="render()">🔄 Renderizar</button>
+    </div>
+  </div>
+
+  <div class="previews">
+    <div class="preview-row">
+      <canvas id="cv192" width="192" height="192"></canvas>
+      <div class="preview-info">
+        <h3>192 × 192 px</h3>
+        <p>PWA install · ícone padrão do app</p>
+        <button onclick="download(192)">⬇ Baixar icon-192.png</button>
+      </div>
+    </div>
+
+    <div class="preview-row">
+      <canvas id="cv512" width="512" height="512"></canvas>
+      <div class="preview-info">
+        <h3>512 × 512 px</h3>
+        <p>Play Store · alta resolução · maskable</p>
+        <button onclick="download(512)">⬇ Baixar icon-512.png</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const PRESETS = {
+  moon:     { ballR:38, ballColor:'#ffffff', glowI:75, glowColor:'#00f5d4', bgColor:'#05050f', ringO:25, smile:8, eyeS:3 },
+  orbital:  { ballR:30, ballColor:'#80f5e8', glowI:90, glowColor:'#00f5d4', bgColor:'#05050f', ringO:80, smile:0,  eyeS:0 },
+  happy:    { ballR:42, ballColor:'#ffffff', glowI:60, glowColor:'#80c8ff', bgColor:'#0a0a18', ringO:0,  smile:14, eyeS:4 },
+  intense:  { ballR:36, ballColor:'#ffffff', glowI:100,glowColor:'#00f5d4', bgColor:'#020208', ringO:35, smile:6,  eyeS:3 }
+};
+
+const CTRLS = ['ballR','glowI','ringO','smile','eyeS','ballColor','glowColor','bgColor'];
+
+function loadPreset(name){
+  const p = PRESETS[name];
+  for (const k of Object.keys(p)){
+    const el = document.getElementById(k);
+    if (el) el.value = p[k];
+  }
+  syncLabels();
+  render();
+}
+
+function syncLabels(){
+  for (const id of CTRLS){
+    const el = document.getElementById(id);
+    const lbl = document.getElementById(id + '-val');
+    if (el && lbl) lbl.textContent = el.value;
+  }
+}
+
+function getParams(){
+  return {
+    ballR:      +document.getElementById('ballR').value,
+    ballColor:  document.getElementById('ballColor').value,
+    glowI:      +document.getElementById('glowI').value,
+    glowColor:  document.getElementById('glowColor').value,
+    bgColor:    document.getElementById('bgColor').value,
+    ringO:      +document.getElementById('ringO').value,
+    smile:      +document.getElementById('smile').value,
+    eyeS:       +document.getElementById('eyeS').value,
+  };
+}
+
+function hexToRgba(hex, alpha){
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function drawIcon(canvas, scale){
+  const ctx = canvas.getContext('2d');
+  const p = getParams();
+  const W = canvas.width, H = canvas.height;
+  const cx = W/2, cy = H/2;
+  // Tudo em % de 100, depois multiplica por scale (canvas size / 100)
+  const s = W / 100;
+
+  // ----- 1. FUNDO com gradiente radial -----
+  ctx.fillStyle = p.bgColor;
+  ctx.fillRect(0, 0, W, H);
+  const bgGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, W * 0.7);
+  // Tons mais claros no centro pra dar profundidade
+  bgGrad.addColorStop(0, hexToRgba(p.glowColor, 0.08));
+  bgGrad.addColorStop(0.5, hexToRgba(p.bgColor, 0.4));
+  bgGrad.addColorStop(1, p.bgColor);
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  // ----- 2. ESTRELAS sutis no fundo (ambiente cósmico) -----
+  ctx.save();
+  const seed = 42;
+  let r = seed;
+  function rng(){ r = (r * 9301 + 49297) % 233280; return r / 233280; }
+  for (let i = 0; i < 14; i++){
+    const x = rng() * W;
+    const y = rng() * H;
+    const sz = 0.4 + rng() * 0.8;
+    const alpha = 0.15 + rng() * 0.35;
+    ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+    ctx.beginPath();
+    ctx.arc(x, y, sz * s * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // ----- 3. ANEL ORBITAL (opcional) -----
+  if (p.ringO > 0){
+    ctx.save();
+    ctx.strokeStyle = hexToRgba(p.glowColor, p.ringO / 100 * 0.6);
+    ctx.lineWidth = 1.2 * s;
+    ctx.setLineDash([3 * s, 4 * s]);
+    ctx.beginPath();
+    ctx.arc(cx, cy, p.ballR * s * 1.35, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // ----- 4. GLOW EXTERNO -----
+  if (p.glowI > 0){
+    ctx.save();
+    const glowR = p.ballR * s * (1.6 + p.glowI / 100 * 1.2);
+    const glowGrad = ctx.createRadialGradient(cx, cy, p.ballR * s * 0.7, cx, cy, glowR);
+    glowGrad.addColorStop(0, hexToRgba(p.glowColor, 0.55 * (p.glowI / 100)));
+    glowGrad.addColorStop(0.4, hexToRgba(p.glowColor, 0.22 * (p.glowI / 100)));
+    glowGrad.addColorStop(1, hexToRgba(p.glowColor, 0));
+    ctx.fillStyle = glowGrad;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+
+  // ----- 5. BOLA principal com gradiente -----
+  ctx.save();
+  // Gradiente pra dar volume (top mais claro, bottom mais escuro)
+  const ballGrad = ctx.createRadialGradient(
+    cx - p.ballR * s * 0.3, cy - p.ballR * s * 0.3, p.ballR * s * 0.15,
+    cx, cy, p.ballR * s
+  );
+  ballGrad.addColorStop(0, '#ffffff');
+  ballGrad.addColorStop(0.7, p.ballColor);
+  // Tinge a base levemente com a cor do glow
+  const baseColor = mixColors(p.ballColor, p.glowColor, 0.35);
+  ballGrad.addColorStop(1, baseColor);
+  ctx.fillStyle = ballGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, p.ballR * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Highlight pequeno top-left (brilho de luz)
+  const hlGrad = ctx.createRadialGradient(
+    cx - p.ballR * s * 0.32, cy - p.ballR * s * 0.32, 0,
+    cx - p.ballR * s * 0.32, cy - p.ballR * s * 0.32, p.ballR * s * 0.55
+  );
+  hlGrad.addColorStop(0, 'rgba(255,255,255,0.85)');
+  hlGrad.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = hlGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, p.ballR * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // ----- 6. ROSTO sorridente (opcional) -----
+  if (p.eyeS > 0 || p.smile > 0){
+    ctx.save();
+    const faceColor = '#0a1226';
+    ctx.fillStyle = faceColor;
+    ctx.strokeStyle = faceColor;
+    ctx.lineCap = 'round';
+
+    // Olhos
+    if (p.eyeS > 0){
+      const eyeR = p.eyeS * s * 0.35;
+      const eyeOff = p.ballR * s * 0.32;
+      const eyeY = cy - p.ballR * s * 0.10;
+      ctx.beginPath();
+      ctx.arc(cx - eyeOff, eyeY, eyeR, 0, Math.PI * 2);
+      ctx.arc(cx + eyeOff, eyeY, eyeR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Sorriso (arco)
+    if (p.smile > 0){
+      const smileR = p.ballR * s * 0.45;
+      const smileY = cy + p.ballR * s * 0.10;
+      const smileDepth = p.smile / 20;
+      ctx.lineWidth = Math.max(1.5, p.ballR * s * 0.06);
+      ctx.beginPath();
+      ctx.arc(cx, smileY, smileR, Math.PI * (0.15 + 0.20 * (1 - smileDepth)), Math.PI * (0.85 - 0.20 * (1 - smileDepth)));
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+function mixColors(hex1, hex2, t){
+  const r1 = parseInt(hex1.slice(1,3),16), g1 = parseInt(hex1.slice(3,5),16), b1 = parseInt(hex1.slice(5,7),16);
+  const r2 = parseInt(hex2.slice(1,3),16), g2 = parseInt(hex2.slice(3,5),16), b2 = parseInt(hex2.slice(5,7),16);
+  const r = Math.round(r1 + (r2 - r1) * t);
+  const g = Math.round(g1 + (g2 - g1) * t);
+  const b = Math.round(b1 + (b2 - b1) * t);
+  return '#' + [r,g,b].map(x => x.toString(16).padStart(2,'0')).join('');
+}
+
+function render(){
+  syncLabels();
+  drawIcon(document.getElementById('cv192'), 192);
+  drawIcon(document.getElementById('cv512'), 512);
+}
+
+function download(size){
+  const canvas = document.getElementById('cv' + size);
+  const link = document.createElement('a');
+  link.download = `icon-${size}.png`;
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+}
+
+// Atualiza preview ao vivo a cada mudança
+for (const id of CTRLS){
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', render);
+}
+
+// Render inicial
+render();
+</script>
+
+</body>
+</html>

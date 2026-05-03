@@ -20,7 +20,7 @@ const AudioCtx = window.AudioContext || window.webkitAudioContext;
 const MUSIC_BASE_GAIN = 0.88;
 const SFX_BASE_GAIN = 0.74;
 let actx = null;
-let musicSceneLevel = 0.90;
+let musicSceneLevel = 0.40;  // era 0.90; baixado pra evitar pico alto na primeira inicializacao
 let musicDuckGain = null;
 let musicGain = null;
 let musicMasterGain = null;
@@ -28,6 +28,7 @@ let musicCompressor = null;
 let sfxGain = null;
 let sfxCompressor = null;
 let sfxOutputGain = null;
+let masterLimiter = null;  // brick-wall limiter no destination final pra evitar clipping
 let musicStarted = false;
 let musicNodes = [];
 
@@ -37,7 +38,19 @@ function getCurrentMusicUserVolume() {
 }
 
 function getMusicTargetGain(sceneLevel = musicSceneLevel) {
-  return muted ? 0 : MUSIC_BASE_GAIN * clamp(sceneLevel, 0, 1) * getCurrentMusicUserVolume();
+  if (muted) return 0;
+  // Garante volume audivel no menu/dead mesmo se uma transicao anterior tiver
+  // engolido o sceneLevel pra valor muito baixo (ex: setMusicVolume(0.05) no die()).
+  // Sem isso, voltar pro menu apos morrer ficava praticamente mudo.
+  let effective = clamp(sceneLevel, 0, 1);
+  try {
+    if (typeof state !== 'undefined' && typeof ST !== 'undefined'
+        && (state === ST.MENU || state === ST.DEAD)) {
+      // Garante audivel no menu mas nao no rosto. 0.45 = ~18% volume final.
+      effective = Math.max(effective, 0.45);
+    }
+  } catch(e) {}
+  return MUSIC_BASE_GAIN * effective * getCurrentMusicUserVolume();
 }
 
 function refreshMusicGain(rampSeconds = 0.25) {
@@ -71,6 +84,24 @@ function duckMusicTo(mult = 0.88, holdMs = 140, rampDown = 0.012, rampUp = 0.18)
   musicDuckGain.gain.linearRampToValueAtTime(1, now + rampDown + holdSec + rampUp);
 }
 
+function initMasterLimiter() {
+  if (masterLimiter || !actx) return;
+  // Brick-wall limiter: protege contra clipping quando musica + SFX tocam juntos
+  // em volumes altos no celular. Threshold -3dBFS, hard knee, ratio 20:1, attack 1ms.
+  masterLimiter = actx.createDynamicsCompressor();
+  masterLimiter.threshold.value = -3;
+  masterLimiter.knee.value = 0;       // hard knee = age como limiter
+  masterLimiter.ratio.value = 20;     // razao alta = limiter brutal
+  masterLimiter.attack.value = 0.001; // 1ms pra pegar transientes
+  masterLimiter.release.value = 0.05; // 50ms volta rapido
+  masterLimiter.connect(actx.destination);
+}
+
+function audioOut() {
+  // Helper: tudo conecta aqui em vez de actx.destination (passa pelo limiter)
+  return masterLimiter || actx.destination;
+}
+
 function initSfxBus() {
   if (!actx || sfxGain) return;
 
@@ -89,12 +120,13 @@ function initSfxBus() {
 
   sfxGain.connect(sfxCompressor);
   sfxCompressor.connect(sfxOutputGain);
-  sfxOutputGain.connect(actx.destination);
+  sfxOutputGain.connect(audioOut());
 }
 
 function initAudio() {
   if (!actx) {
     actx = new AudioCtx();
+    initMasterLimiter();  // CRITICO: tem que vir antes de music/sfx pra audioOut() funcionar
     initMusic();
     initSfxBus();
   }
@@ -103,9 +135,15 @@ function initAudio() {
   }
 }
 
-window.addEventListener('pointerdown', () => {
-  if (actx && actx.state === 'suspended') actx.resume().catch(()=>{});
-}, { passive:true });
+// Inicializa AudioContext na primeira interacao do user em QUALQUER lugar
+// (toque/click/tecla). Browsers exigem user gesture pra criar audio context.
+// Sem isso, a musica do menu nunca tocava ate o jogador morrer ou iniciar partida.
+function _ensureAudio() {
+  try { if (typeof initAudio === 'function') initAudio(); } catch(e) {}
+}
+['pointerdown', 'touchstart', 'mousedown', 'keydown', 'click'].forEach(function(ev){
+  window.addEventListener(ev, _ensureAudio, { once: false, passive: true, capture: true });
+});
 
 // ============ AMBIENT MUSIC ============
 function initMusic() {
@@ -120,7 +158,7 @@ function initMusic() {
 
   const toneFilter = actx.createBiquadFilter();
   toneFilter.type = 'lowpass';
-  toneFilter.frequency.value = 1800;
+  toneFilter.frequency.value = 3200;  // era 1800; abrir pra 3200 da brilho/cosmico sem ficar agudo
   toneFilter.Q.value = 0.7;
 
   musicCompressor = actx.createDynamicsCompressor();
@@ -131,13 +169,17 @@ function initMusic() {
   musicCompressor.release.value = 0.25;
 
   musicMasterGain = actx.createGain();
-  musicMasterGain.gain.value = 0.98;
+  // Fade-in 3.5s no startup: comeca em 0 e sobe gradual pro target.
+  // 3.5s eh tempo suficiente pra qualquer setMusicVolume() do gameplay (em startRun)
+  // ja ter efeito antes de ouvir audio em volume cheio. Evita pico alto no boot.
+  musicMasterGain.gain.value = 0;
+  musicMasterGain.gain.linearRampToValueAtTime(0.92, actx.currentTime + 3.5);
 
   musicGain.connect(musicDuckGain);
   musicDuckGain.connect(toneFilter);
   toneFilter.connect(musicCompressor);
   musicCompressor.connect(musicMasterGain);
-  musicMasterGain.connect(actx.destination);
+  musicMasterGain.connect(audioOut());
 
   // Wide stereo ambience
   const delayL = actx.createDelay(1.5);
@@ -167,48 +209,111 @@ function initMusic() {
   musicMasterGain.connect(delayL);
   delayL.connect(delayLGain);
   delayLGain.connect(delayLPan);
-  delayLPan.connect(actx.destination);
+  delayLPan.connect(audioOut());
 
   musicMasterGain.connect(delayR);
   delayR.connect(delayRGain);
   delayRGain.connect(delayRPan);
-  delayRPan.connect(actx.destination);
+  delayRPan.connect(audioOut());
 
   musicMasterGain.connect(shimmerDelayL);
   shimmerDelayL.connect(shimmerGainL);
   shimmerGainL.connect(shimmerPanL);
-  shimmerPanL.connect(actx.destination);
+  shimmerPanL.connect(audioOut());
 
   musicMasterGain.connect(shimmerDelayR);
   shimmerDelayR.connect(shimmerGainR);
   shimmerGainR.connect(shimmerPanR);
-  shimmerPanR.connect(actx.destination);
+  shimmerPanR.connect(audioOut());
 
-  const chords = [
-    [220.00, 261.63, 329.63], // A minor
+  // Duas progressoes distintas pra criar atmosfera diferente entre menu e gameplay.
+  // Menu: chill, lento, modal (Am - Em - F - C) - sensacao etérea/contemplativa
+  // Play: tenso, ritmado, dramatico (Am - F - C - G) - sensacao de urgencia
+  const chordsMenu = [
+    [220.00, 261.63, 329.63], // A minor (Am)
+    [164.81, 196.00, 246.94], // E minor (Em) - mais grave, modal
     [174.61, 220.00, 261.63], // F major
     [261.63, 329.63, 392.00], // C major
-    [196.00, 246.94, 293.66], // G major
   ];
+  const chordsPlay = [
+    [220.00, 261.63, 329.63], // A minor (Am)
+    [174.61, 220.00, 261.63], // F major
+    [261.63, 329.63, 392.00], // C major
+    [196.00, 246.94, 293.66], // G major (G)
+  ];
+
+  // Escolhe set de acordes baseado no state atual do jogo.
+  // playChord() roda em loop, entao a transicao acontece naturalmente em ~5-8s.
+  function getActiveChords() {
+    try {
+      if (typeof state !== 'undefined' && typeof ST !== 'undefined' && state === ST.PLAY) {
+        return chordsPlay;
+      }
+    } catch(e) {}
+    return chordsMenu;
+  }
+  function getActiveDur() {
+    try {
+      if (typeof state !== 'undefined' && typeof ST !== 'undefined' && state === ST.PLAY) {
+        return 5;  // mais rapido em gameplay (mais urgencia)
+      }
+    } catch(e) {}
+    return 8;  // mais lento em menu (mais chill/etereo)
+  }
+
+  // Perfis de timbre por modo. Diferenciam menu vs gameplay nao soh em
+  // acordes/duracao mas tambem em filtros, volume das camadas e detune.
+  // Menu = etereo/brilhante (lowpass aberto, sub sutil, shimmer alto)
+  // Play = denso/grave (lowpass fechado, sub forte, layers detunes maior)
+  const profileMenu = {
+    subVol: 0.025,        // sub bass sutil
+    padPeakLow: 0.075,    // sine layer principal (mais leve)
+    padPeakHigh: 0.07,    // triangle layers (mais leve)
+    shimmerVol: 0.055,    // shimmer alto e proeminente (estrelado)
+    detuneSpread: 4,      // detune sutil entre layers
+    lowpassLow: 2400,     // pad principal: brilhante
+    lowpassHigh: 4500,    // pad agudo: muito brilhante
+    shimmerMul: 4,        // shimmer 4 oitavas acima
+  };
+  const profilePlay = {
+    subVol: 0.085,        // sub bass forte (peso)
+    padPeakLow: 0.13,     // sine layer principal (denso)
+    padPeakHigh: 0.10,    // triangle layers (denso)
+    shimmerVol: 0.018,    // shimmer sutil, sai de foco
+    detuneSpread: 14,     // detune maior = mais textura cremosa
+    lowpassLow: 1400,     // pad principal: grave/quente
+    lowpassHigh: 2200,    // pad agudo: ainda contido
+    shimmerMul: 3,        // shimmer 3 oitavas (mais conectado)
+  };
+  function getActiveProfile(){
+    try {
+      if (typeof state !== 'undefined' && typeof ST !== 'undefined' && state === ST.PLAY) {
+        return profilePlay;
+      }
+    } catch(e) {}
+    return profileMenu;
+  }
 
   let chordIdx = 0;
 
   function playChord() {
     if (!actx) return;
-    const chord = chords[chordIdx];
+    const activeChords = getActiveChords();
+    const chord = activeChords[chordIdx % activeChords.length];
+    const profile = getActiveProfile();
     const now = actx.currentTime;
-    const dur = 6;
+    const dur = getActiveDur();
     const notePans = [-0.32, 0, 0.32];
 
-    // Soft sub layer for more body
+    // Sub bass layer (sutil em menu, forte em play)
     const sub = actx.createOscillator();
     const subGain = actx.createGain();
     const subPan = makeStereoNode(0);
     sub.type = 'sine';
     sub.frequency.value = chord[0] * 0.5;
     subGain.gain.setValueAtTime(0.0001, now);
-    subGain.gain.linearRampToValueAtTime(0.05, now + 1.6);
-    subGain.gain.setValueAtTime(0.05, now + dur - 1.2);
+    subGain.gain.linearRampToValueAtTime(profile.subVol, now + 1.6);
+    subGain.gain.setValueAtTime(profile.subVol, now + dur - 1.2);
     subGain.gain.exponentialRampToValueAtTime(0.001, now + dur);
     sub.connect(subGain);
     subGain.connect(subPan);
@@ -216,8 +321,9 @@ function initMusic() {
     sub.start(now);
     sub.stop(now + dur);
 
+    // Pads principais (3 notas, cada uma com 2 layers detuned pra textura)
     chord.forEach((freq, i) => {
-      [0, 7].forEach((detune, j) => {
+      [0, profile.detuneSpread].forEach((detune, j) => {
         const osc = actx.createOscillator();
         const g = actx.createGain();
         const p = makeStereoNode(notePans[i] + (j === 0 ? -0.08 : 0.08));
@@ -228,12 +334,13 @@ function initMusic() {
         osc.detune.value = detune;
 
         noteFilter.type = 'lowpass';
-        noteFilter.frequency.value = i === 0 ? 1600 : 2400;
+        noteFilter.frequency.value = i === 0 ? profile.lowpassLow : profile.lowpassHigh;
         noteFilter.Q.value = 0.6;
 
+        const peak = i === 0 ? profile.padPeakLow : profile.padPeakHigh;
         g.gain.setValueAtTime(0.0001, now);
-        g.gain.linearRampToValueAtTime(0.12, now + 1.4);
-        g.gain.setValueAtTime(0.12, now + dur - 1.3);
+        g.gain.linearRampToValueAtTime(peak, now + 1.4);
+        g.gain.setValueAtTime(peak, now + dur - 1.3);
         g.gain.exponentialRampToValueAtTime(0.001, now + dur);
 
         osc.connect(noteFilter);
@@ -245,14 +352,15 @@ function initMusic() {
       });
     });
 
+    // Shimmer alto (proeminente em menu, sutil em play)
     const shimmer = actx.createOscillator();
     const sg = actx.createGain();
     const sp = makeStereoNode(chordIdx % 2 === 0 ? 0.42 : -0.42);
     shimmer.type = 'sine';
-    shimmer.frequency.value = chord[0] * 4;
+    shimmer.frequency.value = chord[0] * profile.shimmerMul;
     shimmer.detune.value = chordIdx % 2 === 0 ? 4 : -4;
     sg.gain.setValueAtTime(0.0001, now);
-    sg.gain.linearRampToValueAtTime(0.03, now + 1.8);
+    sg.gain.linearRampToValueAtTime(profile.shimmerVol, now + 1.8);
     sg.gain.exponentialRampToValueAtTime(0.001, now + dur);
     shimmer.connect(sg);
     sg.connect(sp);
@@ -260,7 +368,7 @@ function initMusic() {
     shimmer.start(now);
     shimmer.stop(now + dur);
 
-    chordIdx = (chordIdx + 1) % chords.length;
+    chordIdx = (chordIdx + 1) % activeChords.length;
     setTimeout(playChord, (dur - 0.5) * 1000);
   }
 
@@ -293,6 +401,11 @@ function playTone(freq, dur, type, vol, detune, opts) {
   const peak = clamp((vol || 0.15) * sfxVol * (cfg.trim ?? 1), 0, 0.32);
   const basePan = clamp((cfg.pan !== undefined ? cfg.pan : (Math.random() * 0.18 - 0.09)), -1, 1);
   const stereoWidth = clamp(cfg.stereoWidth ?? 0.0, 0, 0.7);
+  // Random pitch jitter +-50 cents (~+-3% freq) pra evitar fadiga auditiva quando
+  // o mesmo SFX toca dezenas de vezes (capture loop). Consistente entre as 3 layers
+  // do mesmo som. Opt-out via cfg.noJitter pra SFX que precisam de tom exato.
+  const jitterRange = cfg.jitterCents ?? 50;
+  const baseJitter = cfg.noJitter ? 0 : (Math.random() * 2 - 1) * jitterRange;
 
   function emitLayer(freqMul, detuneOffset, panOffset, gainMul, layerType) {
     const o = actx.createOscillator();
@@ -302,7 +415,7 @@ function playTone(freq, dur, type, vol, detune, opts) {
 
     o.type = layerType || type || 'sine';
     o.frequency.value = freq * freqMul;
-    o.detune.value = (detune || 0) + detuneOffset;
+    o.detune.value = (detune || 0) + detuneOffset + baseJitter;
 
     if (cfg.highpass) {
       f.type = 'highpass';

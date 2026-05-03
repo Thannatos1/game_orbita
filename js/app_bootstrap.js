@@ -1,3 +1,25 @@
+// =====================================================================
+// PROD CONSOLE SILENCER
+// Silencia console.log/info/debug em producao pra reduzir vazamento de
+// info pra usuarios curiosos abrindo DevTools. Mantem console.warn e
+// console.error porque Sentry usa eles como breadcrumbs e diagnosticar
+// crashes em prod ainda eh util. Sentry intercepta antes da gente
+// substituir aqui (ele carrega no <script> anterior).
+// =====================================================================
+(function silenceConsoleInProd(){
+  try {
+    const h = (typeof location !== 'undefined' && location.hostname) || '';
+    const isLocal = h === 'localhost' || h === '127.0.0.1' || h === '';
+    if (isLocal) return;
+    const noop = function(){};
+    if (typeof console !== 'undefined') {
+      ['log','info','debug','trace','dir','dirxml','group','groupCollapsed','groupEnd','table'].forEach(function(m){
+        if (typeof console[m] === 'function') console[m] = noop;
+      });
+    }
+  } catch(e) {}
+})();
+
 (function initOrbitaAppBootstrap(){
   const existingApp = window.App || {};
   const existingConfig = existingApp.config || {};

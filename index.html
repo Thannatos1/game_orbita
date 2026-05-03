@@ -13,6 +13,10 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
 <link rel="apple-touch-icon" href="./icons/icon-192.png">
+<!-- SW registration pra scanners (PWABuilder, Lighthouse) detectarem.
+     Em arquivo separado porque CSP estrita nao permite inline scripts.
+     A registracao "real" com tracking de eventos eh feita em js/pwa.js. -->
+<script src="./js/sw_register_inline.js"></script>
 <!-- Sentry crash reporting (carregado primeiro pra capturar erros de boot) -->
 <script src="https://browser.sentry-cdn.com/7.119.2/bundle.min.js" integrity="sha384-UAV3Sfi2QPbmw5+HHcldIoTSxJgxwUgDhjo8iXDzETyWCSKcmMpCajZvmth9RR9S" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script src="./js/sentry_init.js"></script>
@@ -158,11 +162,12 @@ canvas{display:block;width:100vw;height:100vh}
   transform-origin:-42px 0;
 }
 
-/* Mensagem de carregando */
+/* Mensagem de carregando / CTA tap to start */
 .splash-loading{
   position:relative;z-index:2;margin-top:46px;
   color:rgba(255,255,255,.55);
   font-size:13px;letter-spacing:.04em;
+  min-height:32px;
 }
 .splash-loading .dot{
   display:inline-block;
@@ -174,6 +179,105 @@ canvas{display:block;width:100vw;height:100vh}
   0%,40%,100%{opacity:.2}
   20%{opacity:1}
 }
+/* CTA "TAP TO START" - pulsante + glow ciano */
+.splash-cta{
+  display:inline-block;
+  font-size:18px;font-weight:600;
+  letter-spacing:.18em;
+  color:#80f5e8;
+  text-shadow:0 0 16px rgba(0,245,212,.7);
+  animation:splash-cta-pulse 1.6s ease-in-out infinite;
+  padding:8px 16px;
+  border:1px solid rgba(0,245,212,.35);
+  border-radius:24px;
+  background:rgba(0,245,212,.05);
+}
+@keyframes splash-cta-pulse{
+  0%,100%{opacity:.6;transform:scale(1)}
+  50%{opacity:1;transform:scale(1.05)}
+}
+
+/* ===== AUDIO PANEL ===== */
+#orbita-audio-panel{
+  position:fixed;inset:0;z-index:8000;
+  display:none;align-items:center;justify-content:center;
+  background:rgba(5,5,15,0.78);
+  backdrop-filter:blur(8px);
+  -webkit-backdrop-filter:blur(8px);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  animation:audio-fade-in .2s ease-out;
+}
+#orbita-audio-panel.open{display:flex}
+@keyframes audio-fade-in{from{opacity:0}to{opacity:1}}
+.audio-card{
+  background:linear-gradient(180deg,#0c1a36 0%,#040810 100%);
+  border:1px solid rgba(0,245,212,.25);
+  border-radius:20px;
+  padding:28px 24px 24px;
+  width:min(340px,90vw);
+  box-shadow:0 20px 60px rgba(0,0,0,.6),0 0 40px rgba(0,245,212,.15);
+}
+.audio-card h2{
+  font-size:18px;font-weight:600;
+  color:#80f5e8;letter-spacing:.08em;
+  margin:0 0 20px;text-align:center;
+}
+.audio-row{
+  display:flex;flex-direction:column;
+  margin-bottom:18px;
+}
+.audio-row label{
+  display:flex;justify-content:space-between;align-items:center;
+  font-size:13px;color:rgba(255,255,255,.75);
+  margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em;
+}
+.audio-row label .val{color:#80f5e8;font-weight:600}
+.audio-row input[type=range]{
+  width:100%;height:6px;
+  -webkit-appearance:none;appearance:none;
+  background:rgba(255,255,255,.1);
+  border-radius:3px;outline:none;
+  accent-color:#00f5d4;
+}
+.audio-row input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;appearance:none;
+  width:22px;height:22px;border-radius:50%;
+  background:#00f5d4;cursor:pointer;
+  box-shadow:0 0 12px rgba(0,245,212,.6);
+}
+.audio-row input[type=range]::-moz-range-thumb{
+  width:22px;height:22px;border-radius:50%;
+  background:#00f5d4;cursor:pointer;border:none;
+  box-shadow:0 0 12px rgba(0,245,212,.6);
+}
+.audio-toggle{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:14px 0;border-top:1px solid rgba(255,255,255,.08);
+  margin-top:6px;
+}
+.audio-toggle .label{font-size:13px;color:rgba(255,255,255,.75);text-transform:uppercase;letter-spacing:.06em}
+.audio-toggle .switch{
+  position:relative;width:44px;height:24px;
+  background:rgba(255,255,255,.15);border-radius:12px;
+  cursor:pointer;transition:background .2s;
+}
+.audio-toggle .switch.on{background:#00f5d4}
+.audio-toggle .switch::after{
+  content:'';position:absolute;top:2px;left:2px;
+  width:20px;height:20px;border-radius:50%;
+  background:#fff;transition:left .2s;
+}
+.audio-toggle .switch.on::after{left:22px;background:#0c1a36}
+.audio-close{
+  display:block;width:100%;
+  margin-top:18px;padding:12px;
+  background:rgba(0,245,212,.1);
+  color:#80f5e8;border:1px solid rgba(0,245,212,.3);
+  border-radius:10px;
+  font-size:14px;font-weight:600;letter-spacing:.05em;
+  cursor:pointer;
+}
+.audio-close:active{background:rgba(0,245,212,.2)}
 </style>
 </head>
 <body>
@@ -188,6 +292,27 @@ canvas{display:block;width:100vw;height:100vh}
   <div class="splash-loading">carregando<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></div>
 </div>
 <canvas id="c"></canvas>
+
+<!-- Audio settings panel (escondido por default; mostra ao tap no icone speaker) -->
+<div id="orbita-audio-panel" role="dialog" aria-modal="true" aria-label="Audio settings">
+  <div class="audio-card">
+    <h2 id="audio-title">SOM</h2>
+    <div class="audio-row">
+      <label><span id="audio-music-label">Música</span><span class="val"><span id="audio-music-val">50</span>%</span></label>
+      <input type="range" id="audio-music-slider" min="0" max="100" step="1" value="50">
+    </div>
+    <div class="audio-row">
+      <label><span id="audio-sfx-label">Efeitos</span><span class="val"><span id="audio-sfx-val">50</span>%</span></label>
+      <input type="range" id="audio-sfx-slider" min="0" max="100" step="1" value="50">
+    </div>
+    <div class="audio-toggle">
+      <span class="label" id="audio-mute-label">Sem som</span>
+      <div id="audio-mute-switch" class="switch" role="switch" aria-checked="false"></div>
+    </div>
+    <button class="audio-close" id="audio-close-btn">FECHAR</button>
+  </div>
+</div>
+
 <script src="./js/core.js"></script>
 <script src="./js/services.js"></script>
 <script src="./js/pwa.js"></script>
@@ -196,6 +321,7 @@ canvas{display:block;width:100vw;height:100vh}
 <script src="./js/render.js"></script>
 <script src="./js/gameplay_ui.js"></script>
 <script src="./js/i18n.js"></script>
+<script src="./js/audio_panel.js"></script>
 <script src="./js/flappy_radical_patch.js"></script>
 <script src="./js/main.js"></script>
 </body>
