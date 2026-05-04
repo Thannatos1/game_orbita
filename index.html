@@ -34,15 +34,11 @@ canvas{display:block;width:100vw;height:100vh}
   background:radial-gradient(ellipse at 50% 55%, #0c1a36 0%, #04060e 60%, #04060e 100%);
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   transition:opacity .45s ease-out, visibility .45s;
-  /* failsafe: se nada acontecer em 8s, esconde mesmo assim */
-  animation:splash-failsafe 8s linear 1 forwards;
+  /* Splash fica visivel ate user tocar ou JS failsafe disparar (30s).
+     Auto-fade CSS foi removida porque deixava splash invisivel mas com
+     pointer-events ativos -> tap "fantasma" passava pro canvas. */
 }
-#orbita-splash.hidden{opacity:0;visibility:hidden;animation:none;pointer-events:none}
-
-@keyframes splash-failsafe{
-  0%,93%{opacity:1}
-  100%{opacity:0}
-}
+#orbita-splash.hidden{opacity:0;visibility:hidden;pointer-events:none}
 
 /* Estrelas de fundo (apenas decoracao) */
 #orbita-splash::before{
@@ -278,6 +274,16 @@ canvas{display:block;width:100vw;height:100vh}
   cursor:pointer;
 }
 .audio-close:active{background:rgba(0,245,212,.2)}
+/* Toast "salvo" que aparece brevemente quando user altera valor */
+.audio-saved-toast{
+  display:block;text-align:center;
+  font-size:12px;color:#00f5d4;
+  letter-spacing:.05em;
+  height:16px;line-height:16px;
+  margin-top:6px;
+  opacity:0;transition:opacity .25s ease;
+}
+.audio-saved-toast.visible{opacity:1}
 </style>
 </head>
 <body>
@@ -289,7 +295,7 @@ canvas{display:block;width:100vw;height:100vh}
       <div class="splash-ball"></div>
     </div>
   </div>
-  <div class="splash-loading">carregando<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></div>
+  <div class="splash-loading"><span class="splash-cta" id="splash-cta-text">TOQUE PARA INICIAR</span></div>
 </div>
 <canvas id="c"></canvas>
 
@@ -298,8 +304,12 @@ canvas{display:block;width:100vw;height:100vh}
   <div class="audio-card">
     <h2 id="audio-title">SOM</h2>
     <div class="audio-row">
-      <label><span id="audio-music-label">Música</span><span class="val"><span id="audio-music-val">50</span>%</span></label>
+      <label><span id="audio-music-label">Música (Menu)</span><span class="val"><span id="audio-music-val">50</span>%</span></label>
       <input type="range" id="audio-music-slider" min="0" max="100" step="1" value="50">
+    </div>
+    <div class="audio-row">
+      <label><span id="audio-gamemusic-label">Música (Jogo)</span><span class="val"><span id="audio-gamemusic-val">50</span>%</span></label>
+      <input type="range" id="audio-gamemusic-slider" min="0" max="100" step="1" value="50">
     </div>
     <div class="audio-row">
       <label><span id="audio-sfx-label">Efeitos</span><span class="val"><span id="audio-sfx-val">50</span>%</span></label>
@@ -309,7 +319,8 @@ canvas{display:block;width:100vw;height:100vh}
       <span class="label" id="audio-mute-label">Sem som</span>
       <div id="audio-mute-switch" class="switch" role="switch" aria-checked="false"></div>
     </div>
-    <button class="audio-close" id="audio-close-btn">FECHAR</button>
+    <span id="audio-saved-toast" class="audio-saved-toast">✓ Salvo</span>
+    <button class="audio-close" id="audio-close-btn">OK</button>
   </div>
 </div>
 

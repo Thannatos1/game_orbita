@@ -11,14 +11,82 @@ function resize() {
 }
 resize();
 window.addEventListener('resize', resize);
-document.addEventListener('touchstart', e=>e.preventDefault(), {passive:false});
-document.addEventListener('touchmove', e=>e.preventDefault(), {passive:false});
+
+// Quando o app volta do background (minimizar e abrir de novo), Android Custom
+// Tabs / Chrome as vezes nao re-dispara 'resize' mesmo com a viewport mudando
+// de tamanho (ex: barra de URL aparece/some). Isso deixava o canvas preso no
+// tamanho antigo (UI no canto, resto preto). Forca resize ao voltar.
+// Tambem suspende o AudioContext pra musica nao continuar tocando minimizado.
+// ============ HANDLERS DE BACKGROUND (simples: auto-mute/unmute) ============
+// Estrategia simples: minimizar = auto-mute (sem salvar no localStorage),
+// voltar = auto-unmute. Usa o sistema 'muted' existente. Se o user JA estava
+// mutado manualmente, nao desfaz isso ao voltar.
+let _autoMutedByBg = false;
+
+function _muteForBackground() {
+  if (!actx) return;
+  if (!muted) {
+    _autoMutedByBg = true;
+    muted = true;
+    if (typeof refreshMusicGain === 'function') refreshMusicGain(0.08);
+  }
+}
+
+function _unmuteFromBackground() {
+  if (!actx) return;
+  // Resume AudioContext se foi suspended (Android as vezes faz isso sozinho)
+  if (actx.state === 'suspended') {
+    actx.resume().catch(()=>{});
+  }
+  if (_autoMutedByBg) {
+    _autoMutedByBg = false;
+    muted = false;
+    if (typeof refreshMusicGain === 'function') refreshMusicGain(0.3);
+  }
+  // Restart scheduler de chord (caso tenha parado por document.hidden)
+  if (typeof window._restartMusicScheduler === 'function') {
+    setTimeout(window._restartMusicScheduler, 80);
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    _muteForBackground();
+  } else {
+    _unmuteFromBackground();
+    try { resize(); } catch(e) {}
+    setTimeout(() => { try { resize(); } catch(e) {} }, 80);
+    setTimeout(() => { try { resize(); } catch(e) {} }, 300);
+  }
+});
+
+// Backups: alguns Android/WebViews nao disparam visibilitychange confiavel.
+// pagehide/pageshow + blur/focus cobrem casos extras.
+window.addEventListener('blur', () => { if (document.hidden) _muteForBackground(); });
+window.addEventListener('pagehide', _muteForBackground);
+window.addEventListener('pageshow', () => {
+  _unmuteFromBackground();
+  try { resize(); } catch(e) {}
+  setTimeout(() => { try { resize(); } catch(e) {} }, 80);
+});
+// Bloqueia gestos nativos (zoom, scroll, double-tap) no canvas mas permite
+// que UI HTML (painel de audio, sliders, botoes) receba touch normalmente.
+function _isUIControl(t){
+  return !!(t && t.closest && t.closest(
+    '#orbita-audio-panel, #orbita-splash, input, button, select, textarea, [role="switch"], [contenteditable="true"]'
+  ));
+}
+document.addEventListener('touchstart', e=>{ if (!_isUIControl(e.target)) e.preventDefault(); }, {passive:false});
+document.addEventListener('touchmove',  e=>{ if (!_isUIControl(e.target)) e.preventDefault(); }, {passive:false});
 document.addEventListener('gesturestart', e=>e.preventDefault());
 
 // ============ AUDIO ============
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
-const MUSIC_BASE_GAIN = 0.88;
-const SFX_BASE_GAIN = 0.74;
+// Reduzido pra dar headroom: peaks de 3 notas × 2 layers + sub + shimmer somavam
+// quase 1.0 em peak antes do limiter, causando saturacao audivel ("estralo") em
+// celulares. 0.55 da ~30-40% de headroom = limiter menos pressionado, sem pumping.
+const MUSIC_BASE_GAIN = 0.55;
+const SFX_BASE_GAIN = 0.55;
 let actx = null;
 let musicSceneLevel = 0.40;  // era 0.90; baixado pra evitar pico alto na primeira inicializacao
 let musicDuckGain = null;
@@ -86,19 +154,36 @@ function duckMusicTo(mult = 0.88, holdMs = 140, rampDown = 0.012, rampUp = 0.18)
 
 function initMasterLimiter() {
   if (masterLimiter || !actx) return;
-  // Brick-wall limiter: protege contra clipping quando musica + SFX tocam juntos
-  // em volumes altos no celular. Threshold -3dBFS, hard knee, ratio 20:1, attack 1ms.
+  // Soft master limiter: ratio menor + attack mais lento + soft knee = menos
+  // pumping/clicking em celulares. Combinado com saturator antes pra arredondar
+  // peaks sem esmagar o som.
+  // Saturator (waveshaper soft tanh) -> compressor -> destination
+  const saturator = actx.createWaveShaper();
+  const curve = new Float32Array(2048);
+  for (let i = 0; i < 2048; i++) {
+    const x = (i / 2048) * 2 - 1;
+    // tanh aproximado (rounding peaks suavemente, evita clipping duro)
+    curve[i] = Math.tanh(x * 1.3) / Math.tanh(1.3);
+  }
+  saturator.curve = curve;
+  saturator.oversample = '2x';
+
   masterLimiter = actx.createDynamicsCompressor();
-  masterLimiter.threshold.value = -3;
-  masterLimiter.knee.value = 0;       // hard knee = age como limiter
-  masterLimiter.ratio.value = 20;     // razao alta = limiter brutal
-  masterLimiter.attack.value = 0.001; // 1ms pra pegar transientes
-  masterLimiter.release.value = 0.05; // 50ms volta rapido
+  masterLimiter.threshold.value = -6;   // -6 dBFS (mais headroom)
+  masterLimiter.knee.value = 8;         // soft knee (menos clicking)
+  masterLimiter.ratio.value = 4;        // 4:1 (relaxed - menos pumping)
+  masterLimiter.attack.value = 0.005;   // 5ms (menos transient distortion)
+  masterLimiter.release.value = 0.12;   // 120ms (release suave, sem pumping)
+
+  saturator.connect(masterLimiter);
   masterLimiter.connect(actx.destination);
+  // audioOut() retorna o saturator (entrada da chain)
+  masterLimiter._saturator = saturator;
 }
 
 function audioOut() {
-  // Helper: tudo conecta aqui em vez de actx.destination (passa pelo limiter)
+  // Helper: tudo conecta aqui em vez de actx.destination (passa pelo saturator+limiter)
+  if (masterLimiter && masterLimiter._saturator) return masterLimiter._saturator;
   return masterLimiter || actx.destination;
 }
 
@@ -125,7 +210,12 @@ function initSfxBus() {
 
 function initAudio() {
   if (!actx) {
-    actx = new AudioCtx();
+    // latencyHint:'playback' usa buffers maiores -> menos CPU -> menos crackle em cel
+    try {
+      actx = new AudioCtx({ latencyHint: 'playback' });
+    } catch(e) {
+      actx = new AudioCtx();
+    }
     initMasterLimiter();  // CRITICO: tem que vir antes de music/sfx pra audioOut() funcionar
     initMusic();
     initSfxBus();
@@ -265,25 +355,27 @@ function initMusic() {
   // acordes/duracao mas tambem em filtros, volume das camadas e detune.
   // Menu = etereo/brilhante (lowpass aberto, sub sutil, shimmer alto)
   // Play = denso/grave (lowpass fechado, sub forte, layers detunes maior)
+  // Peaks reduzidos ~30% (era 0.075/0.07 etc) pra evitar saturacao audivel ao
+  // somar 3 notas × 2 layers + sub + shimmer.
   const profileMenu = {
-    subVol: 0.025,        // sub bass sutil
-    padPeakLow: 0.075,    // sine layer principal (mais leve)
-    padPeakHigh: 0.07,    // triangle layers (mais leve)
-    shimmerVol: 0.055,    // shimmer alto e proeminente (estrelado)
-    detuneSpread: 4,      // detune sutil entre layers
-    lowpassLow: 2400,     // pad principal: brilhante
-    lowpassHigh: 4500,    // pad agudo: muito brilhante
-    shimmerMul: 4,        // shimmer 4 oitavas acima
+    subVol: 0.020,
+    padPeakLow: 0.052,
+    padPeakHigh: 0.048,
+    shimmerVol: 0.038,
+    detuneSpread: 4,
+    lowpassLow: 2400,
+    lowpassHigh: 4500,
+    shimmerMul: 4,
   };
   const profilePlay = {
-    subVol: 0.085,        // sub bass forte (peso)
-    padPeakLow: 0.13,     // sine layer principal (denso)
-    padPeakHigh: 0.10,    // triangle layers (denso)
-    shimmerVol: 0.018,    // shimmer sutil, sai de foco
-    detuneSpread: 14,     // detune maior = mais textura cremosa
-    lowpassLow: 1400,     // pad principal: grave/quente
-    lowpassHigh: 2200,    // pad agudo: ainda contido
-    shimmerMul: 3,        // shimmer 3 oitavas (mais conectado)
+    subVol: 0.060,
+    padPeakLow: 0.090,
+    padPeakHigh: 0.070,
+    shimmerVol: 0.013,
+    detuneSpread: 14,
+    lowpassLow: 1400,
+    lowpassHigh: 2200,
+    shimmerMul: 3,
   };
   function getActiveProfile(){
     try {
@@ -295,15 +387,56 @@ function initMusic() {
   }
 
   let chordIdx = 0;
+  let _chordTimer = null;
+  // Lista de oscillators ATIVOS (que ainda nao terminaram). Necessario pra
+  // poder matar todos ao minimizar (caso contrario continuam scheduled e
+  // tocam quando voltar do background).
+  const _activeNodes = [];
+  function _trackNode(osc, gainNode, endTime) {
+    _activeNodes.push({ osc, gainNode, endTime });
+  }
+  function _cleanExpiredNodes() {
+    if (!actx) return;
+    const now = actx.currentTime;
+    for (let i = _activeNodes.length - 1; i >= 0; i--) {
+      if (_activeNodes[i].endTime < now) _activeNodes.splice(i, 1);
+    }
+  }
+  // Mata tudo: ramp gains pra 0 instantaneo + osc.stop(now). Limpa lista.
+  window._killAllMusicNodes = function(){
+    if (!actx) return;
+    const now = actx.currentTime;
+    _activeNodes.forEach(({ osc, gainNode }) => {
+      try {
+        if (gainNode && gainNode.gain) {
+          gainNode.gain.cancelScheduledValues(now);
+          gainNode.gain.setValueAtTime(0, now);
+        }
+      } catch(e) {}
+      try { osc.stop(now + 0.01); } catch(e) {}
+      try { osc.disconnect(); } catch(e) {}
+    });
+    _activeNodes.length = 0;
+  };
 
   function playChord() {
     if (!actx) return;
+    // Se AudioContext nao esta running OU app esta hidden, PARA o scheduler
+    // (nao reagenda). _restartMusicScheduler vai retomar do zero quando o app
+    // voltar visivel. Isso evita acumulo de setTimeouts em background que
+    // causam audio "fantasma" no resume.
+    if (actx.state !== 'running' || (typeof document !== 'undefined' && document.hidden)) {
+      _chordTimer = null;
+      return;
+    }
     const activeChords = getActiveChords();
     const chord = activeChords[chordIdx % activeChords.length];
     const profile = getActiveProfile();
     const now = actx.currentTime;
     const dur = getActiveDur();
     const notePans = [-0.32, 0, 0.32];
+
+    _cleanExpiredNodes();
 
     // Sub bass layer (sutil em menu, forte em play)
     const sub = actx.createOscillator();
@@ -320,6 +453,7 @@ function initMusic() {
     subPan.connect(musicGain);
     sub.start(now);
     sub.stop(now + dur);
+    _trackNode(sub, subGain, now + dur);
 
     // Pads principais (3 notas, cada uma com 2 layers detuned pra textura)
     chord.forEach((freq, i) => {
@@ -349,6 +483,7 @@ function initMusic() {
         p.connect(musicGain);
         osc.start(now);
         osc.stop(now + dur);
+        _trackNode(osc, g, now + dur);
       });
     });
 
@@ -367,10 +502,21 @@ function initMusic() {
     sp.connect(musicGain);
     shimmer.start(now);
     shimmer.stop(now + dur);
+    _trackNode(shimmer, sg, now + dur);
 
     chordIdx = (chordIdx + 1) % activeChords.length;
-    setTimeout(playChord, (dur - 0.5) * 1000);
+    _chordTimer = setTimeout(playChord, (dur - 0.5) * 1000);
   }
+
+  // Expoe um restart pra ser chamado pelo visibilitychange handler quando
+  // app volta do background. Se estiver no meio de um setTimeout queued,
+  // o proprio playChord ja vai pular se actx nao estiver running.
+  window._restartMusicScheduler = function(){
+    if (!actx || actx.state !== 'running') return;
+    if (typeof document !== 'undefined' && document.hidden) return;
+    if (_chordTimer) clearTimeout(_chordTimer);
+    playChord();
+  };
 
   playChord();
 }
@@ -385,6 +531,42 @@ function toggleMute() {
   saveData();
   refreshMusicGain(0.18);
 }
+
+// API publica pros controles de audio (audio_panel.js).
+// Necessario porque menuMusicVol/gameMusicVol/sfxVol sao 'let' no top level
+// do script, ficando script-scoped (nao acessivel via window.X = v).
+// Menu vs Gameplay tem sliders separados (perfis de musica diferentes).
+window.OrbitaAudio = {
+  // Setters separados (recomendado)
+  setMenuMusic(v) {
+    menuMusicVol = clamp(+v || 0, 0, 1);
+    if (typeof refreshMusicGain === 'function') refreshMusicGain(0.12);
+  },
+  setGameMusic(v) {
+    gameMusicVol = clamp(+v || 0, 0, 1);
+    if (typeof refreshMusicGain === 'function') refreshMusicGain(0.12);
+  },
+  // Compat: setMusic seta os 2 (mantem retro-compatibilidade)
+  setMusic(v) {
+    v = clamp(+v || 0, 0, 1);
+    menuMusicVol = v;
+    gameMusicVol = v;
+    if (typeof refreshMusicGain === 'function') refreshMusicGain(0.12);
+  },
+  setSfx(v) {
+    sfxVol = clamp(+v || 0, 0, 1);
+  },
+  toggleMute() { toggleMute(); },
+  setMuted(b) {
+    if (!!b !== muted) toggleMute();
+  },
+  isMuted() { return muted; },
+  getMenuMusic() { return menuMusicVol; },
+  getGameMusic() { return gameMusicVol; },
+  // Compat: retorna menu por default
+  getMusic() { return menuMusicVol; },
+  getSfx() { return sfxVol; }
+};
 
 function vibrate(pattern) {
   if (!vibrationOn || !navigator.vibrate) return;

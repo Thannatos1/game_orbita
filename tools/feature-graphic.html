@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Last Orbit — Feature Graphic Generator</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0a0a14;
+    color: #c8c8e0;
+    padding: 1.5rem 2rem 3rem;
+  }
+  h1 { color: #fff; font-size: 1.5rem; margin-bottom: 0.4rem; }
+  h1 small { font-size: 0.85rem; color: #6a6a88; font-weight: normal; }
+  p.lede { color: #8888aa; font-size: 0.9rem; margin-bottom: 1.5rem; max-width: 760px; }
+  .toolbar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.85rem;
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    background: #11112a;
+    border-radius: 8px;
+    border: 1px solid #1a1a30;
+  }
+  .field { display: flex; flex-direction: column; gap: 0.3rem; }
+  .field label { font-size: 0.75rem; color: #8888aa; text-transform: uppercase; letter-spacing: 0.05em; }
+  .field input, .field select, .field textarea {
+    background: #1a1a30; border: 1px solid #2a2a44; color: #e0e0f0;
+    padding: 0.45rem 0.55rem; border-radius: 4px; font-size: 0.9rem;
+    font-family: inherit;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    outline: none; border-color: #00f5d4;
+  }
+  button {
+    background: #00f5d4; color: #04060e; border: 0;
+    padding: 0.6rem 1.1rem; border-radius: 6px;
+    font-weight: 600; cursor: pointer; font-size: 0.9rem;
+  }
+  button:hover { filter: brightness(1.1); }
+  .preview-wrap {
+    background: repeating-conic-gradient(#1a1a30 0% 25%, #14142a 0% 50%) 50% / 16px 16px;
+    border-radius: 8px;
+    padding: 1rem;
+    overflow: auto;
+    border: 1px solid #1a1a30;
+  }
+  canvas { display: block; max-width: 100%; height: auto; }
+  .actions { margin-top: 1rem; display: flex; gap: 0.6rem; align-items: center; }
+  .hint { font-size: 0.8rem; color: #6a6a88; }
+</style>
+</head>
+<body>
+
+<h1>Last Orbit — Feature Graphic <small>1024×500 · PNG/JPG</small></h1>
+<p class="lede">
+  Gera o "recurso gráfico" do topo da Play Store. Editar texto/tema → exporta PNG 1024×500.
+  Mantém área central (640×320) sem texto crítico — Play Store pode cobrir parcialmente em devices pequenos.
+</p>
+
+<div class="toolbar">
+  <div class="field">
+    <label>Headline</label>
+    <input type="text" id="headline" value="LAST ORBIT" maxlength="20">
+  </div>
+  <div class="field">
+    <label>Subhead</label>
+    <input type="text" id="sub" value="UM TOQUE. SOLTE NA HORA CERTA." maxlength="60">
+  </div>
+  <div class="field">
+    <label>Tema</label>
+    <select id="theme">
+      <option value="cyan" selected>Ciano (oficial)</option>
+      <option value="gold">Dourado (tier alto)</option>
+      <option value="purple">Roxo (bônus)</option>
+      <option value="dual">Ciano + Dourado</option>
+    </select>
+  </div>
+  <div class="field">
+    <label>&nbsp;</label>
+    <button id="download">Baixar PNG 1024×500</button>
+  </div>
+</div>
+
+<div class="preview-wrap">
+  <canvas id="preview" width="1024" height="500"></canvas>
+</div>
+
+<div class="actions">
+  <span class="hint">↑ preview em escala 1:1 (1024×500). Tudo rasterizado via Canvas, sem dependências externas.</span>
+</div>
+
+<canvas id="exportCanvas" width="1024" height="500" style="display:none;"></canvas>
+
+<script>
+const THEMES = {
+  cyan:   { primary:'#00f5d4', secondary:'#7aa8ff', accent:'#80f5e8', bg1:'#0a1530', bg2:'#04060e' },
+  gold:   { primary:'#ffd166', secondary:'#ff9933', accent:'#ffeaa0', bg1:'#1a1004', bg2:'#0a0608' },
+  purple: { primary:'#d672ff', secondary:'#8a5cff', accent:'#e8b8ff', bg1:'#1a0a26', bg2:'#0a040d' },
+  dual:   { primary:'#00f5d4', secondary:'#ffd166', accent:'#80f5e8', bg1:'#0a1530', bg2:'#0c0608' }
+};
+
+const $ = id => document.getElementById(id);
+const preview = $('preview');
+const exportCanvas = $('exportCanvas');
+
+function compose(ctx, w, h) {
+  const themeKey = $('theme').value;
+  const theme = THEMES[themeKey];
+  const headline = $('headline').value || 'LAST ORBIT';
+  const sub = $('sub').value || '';
+
+  // Background gradient
+  const grad = ctx.createLinearGradient(0, 0, w, h);
+  grad.addColorStop(0, theme.bg1);
+  grad.addColorStop(0.6, theme.bg2);
+  grad.addColorStop(1, '#02030a');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+
+  // Stars
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  let seed = 7919;
+  for (let i = 0; i < 90; i++) {
+    seed = (seed * 9301 + 49297) % 233280;
+    const x = (seed / 233280) * w;
+    seed = (seed * 9301 + 49297) % 233280;
+    const y = (seed / 233280) * h;
+    seed = (seed * 9301 + 49297) % 233280;
+    const r = (seed / 233280) * 2.6 + 0.4;
+    ctx.globalAlpha = 0.2 + (seed / 233280) * 0.55;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // Glow accent (right side)
+  const glow = ctx.createRadialGradient(w * 0.78, h * 0.5, 0, w * 0.78, h * 0.5, w * 0.55);
+  glow.addColorStop(0, theme.primary + '55');
+  glow.addColorStop(0.5, theme.primary + '15');
+  glow.addColorStop(1, 'transparent');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, w, h);
+
+  // Decorative orbit on the right
+  drawOrbit(ctx, w * 0.78, h * 0.5, h * 0.32, theme);
+
+  // Headline (LAST ORBIT) - left side, big
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  const headlineSize = autoFit(ctx, headline, w * 0.55, 110, 48);
+  ctx.font = `900 ${headlineSize}px -apple-system, "Segoe UI", Roboto, sans-serif`;
+  ctx.fillStyle = '#ffffff';
+  ctx.shadowColor = theme.primary + 'cc';
+  ctx.shadowBlur = 30;
+  ctx.fillText(headline, w * 0.06, h * 0.42);
+  ctx.shadowBlur = 0;
+
+  // Subhead
+  if (sub) {
+    const subSize = autoFit(ctx, sub, w * 0.55, 28, 14);
+    ctx.font = `600 ${subSize}px -apple-system, "Segoe UI", Roboto, sans-serif`;
+    ctx.fillStyle = theme.accent;
+    ctx.fillText(sub, w * 0.06, h * 0.62);
+  }
+
+  // Brand bar (small at bottom)
+  ctx.font = `700 12px -apple-system, sans-serif`;
+  ctx.fillStyle = theme.primary;
+  ctx.textAlign = 'left';
+  ctx.fillText('1 BOTÃO · OFFLINE · DIFÍCIL', w * 0.06, h * 0.78);
+}
+
+function autoFit(ctx, text, maxWidth, startSize, minSize) {
+  let size = startSize;
+  while (size > minSize) {
+    ctx.font = `900 ${size}px -apple-system, "Segoe UI", Roboto, sans-serif`;
+    if (ctx.measureText(text).width <= maxWidth) return size;
+    size *= 0.94;
+  }
+  return minSize;
+}
+
+function drawOrbit(ctx, cx, cy, r, theme) {
+  // Dotted orbit ring
+  ctx.save();
+  ctx.strokeStyle = theme.primary + '88';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 8]);
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // Center node (gold)
+  ctx.save();
+  ctx.shadowColor = '#ffd166';
+  ctx.shadowBlur = 30;
+  ctx.fillStyle = '#ffd166';
+  ctx.beginPath(); ctx.arc(cx, cy, r * 0.18, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // Orbiting ball
+  const angle = -Math.PI * 0.35;
+  const bx = cx + Math.cos(angle) * r;
+  const by = cy + Math.sin(angle) * r;
+  ctx.save();
+  ctx.shadowColor = '#ffffff';
+  ctx.shadowBlur = 22;
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(bx, by, r * 0.13, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // Trail dots
+  for (let i = 1; i <= 6; i++) {
+    const t = angle - 0.07 * i;
+    const tx = cx + Math.cos(t) * r;
+    const ty = cy + Math.sin(t) * r;
+    ctx.fillStyle = `rgba(0,245,212,${0.75 - i * 0.11})`;
+    ctx.beginPath(); ctx.arc(tx, ty, r * 0.08 - i * 0.005, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function render() {
+  const ctx = preview.getContext('2d');
+  ctx.clearRect(0, 0, 1024, 500);
+  compose(ctx, 1024, 500);
+}
+
+function download() {
+  const ctx = exportCanvas.getContext('2d');
+  ctx.clearRect(0, 0, 1024, 500);
+  compose(ctx, 1024, 500);
+  exportCanvas.toBlob(blob => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'lastorbit-feature-graphic-1024x500.png';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }, 'image/png');
+}
+
+['headline','sub','theme'].forEach(id => $(id).addEventListener('input', render));
+$('download').addEventListener('click', download);
+
+render();
+</script>
+
+</body>
+</html>

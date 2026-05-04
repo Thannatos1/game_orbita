@@ -25,9 +25,10 @@
 /manifest.webmanifest
   Cache-Control: public, max-age=3600
 
-# Assets versionaveis podem cachear forte (o SW invalida via cache bump)
+# JS deve revalidar rapido pra updates chegarem fast no APK/PWA instalado.
+# (HTTP cache do WebView ignora SW skipWaiting, entao max-age curto eh critico.)
 /js/*
-  Cache-Control: public, max-age=3600
+  Cache-Control: public, max-age=300, must-revalidate
 
 /icons/*
   Cache-Control: public, max-age=86400

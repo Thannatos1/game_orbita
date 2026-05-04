@@ -28,7 +28,7 @@ Inspirado na simplicidade de Flappy Bird, mas com mecânica original: você não
 
 ⚡ POR QUE VOCÊ NÃO VAI CONSEGUIR PARAR
 
-▸ 1 botão. Sem tutorial. Você aprende morrendo.
+▸ 1 botão. Sem texto chato — aprende jogando nos 3 primeiros runs
 ▸ Reinício INSTANTÂNEO — em 0.18s você está jogando de novo
 ▸ MEGA BÔNUS aleatórios em capturas (4% chance de x5 pontos)
 ▸ Bônus Sorte (11% chance de x2)
@@ -111,7 +111,7 @@ Inspired by Flappy Bird's simplicity, but with original mechanics: you don't jum
 
 ⚡ WHY YOU WON'T BE ABLE TO STOP
 
-▸ 1 button. No tutorial. You learn by dying.
+▸ 1 button. No text walls — learn by playing the first 3 runs
 ▸ INSTANT restart — back in the game in 0.18 seconds
 ▸ Random MEGA BONUS captures (4% chance of x5 points)
 ▸ Lucky bonus (11% chance of x2)

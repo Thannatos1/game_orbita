@@ -3,6 +3,9 @@
   "target": {
     "namespace": "android_app",
     "package_name": "app.lastorbit.game",
-    "sha256_cert_fingerprints": ["DF:DC:0A:1D:BC:B2:E2:0C:AD:D8:66:74:34:36:DC:79:92:87:64:05:FF:6A:BB:69:EA:BD:E4:06:F1:43:C5:B8"]
+    "sha256_cert_fingerprints": [
+      "DF:DC:0A:1D:BC:B2:E2:0C:AD:D8:66:74:34:36:DC:79:92:87:64:05:FF:6A:BB:69:EA:BD:E4:06:F1:43:C5:B8",
+      "1F:C2:EF:26:E6:E5:3E:83:35:C3:9A:B3:D2:25:6E:08:56:15:5C:AC:B3:4F:F4:4B:DC:2C:0C:A3:72:DE:50:2F"
+    ]
   }
 }]

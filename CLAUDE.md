@@ -9,13 +9,16 @@
 
 ## TL;DR
 
-**Last Orbit** é um jogo arcade web (Canvas 2D) inspirado em Flappy Bird, mas com uma mecânica de **bola orbitando nós** que o jogador "solta" no momento certo pra capturar o próximo nó. Hyper-casual, one-button. Distribuído como **PWA** (já hospedado) e **AAB pra Play Store** (já gerado, aguardando aprovação da conta Developer pra subir).
+**Last Orbit** é um jogo arcade web (Canvas 2D) inspirado em Flappy Bird, mas com uma mecânica de **bola orbitando nós** que o jogador "solta" no momento certo pra capturar o próximo nó. Hyper-casual, one-button. Distribuído como **PWA** (já hospedado) e **AAB instalável via Play Store** (na track de **Teste Interno** desde 2026-05-04).
 
 **URL prod ativa**: `https://lastorbit-app.pages.dev` (Cloudflare Pages, deploy via wrangler CLI)
+**Track Play Store (Internal)**: `https://play.google.com/apps/internaltest/4701254592733948037`
+**Cache atual**: `orbita-pwa-v123` em `sw.js`
 
 > **Nota de branding (2026-04):** O nome de marca mudou de "Órbita" (PT-BR) pra "Last Orbit" (global). O codename interno permanece `orbita` em **todas** as referências técnicas (`orbita_*` no localStorage, `_AC_SALT='orb1ta_…'`, `CACHE_NAME='orbita-pwa-…'`, `OrbitaI18n`, `[Orbita]` em logs, `tags: { game: 'orbita' }` no Sentry, `release: 'orbita@…'`). **Não renomear codename** — quebraria saves de testers e invalidaria sigs anti-cheat existentes.
 
 Owner: Galileu (galileuneto146@gmail.com)
+**E-mail de suporte público (na ficha da loja + privacy policy)**: `lastorbit.contato@gmail.com`
 Idiomas: PT-BR (default), EN, ES (auto-detect via `navigator.language`)
 Package Android (imutável após Play): `app.lastorbit.game`
 
@@ -114,13 +117,24 @@ Seções principais (em ordem no arquivo):
 - **Volume mínimo 0.45** forçado em MENU/DEAD pra não ficar mudo após transição
 - **Random pitch ±50 cents** em SFX (anti-fadiga auditiva)
 - **AudioContext init em qualquer gesture** (listeners globais em `core.js`)
-- **Painel de volume** acessível pelo speaker icon (sliders Música/SFX + mute toggle)
+- **Painel de volume HTML** (`OrbitaAudioPanel.open()`) acessível pelo speaker icon — sliders Música/SFX + mute toggle + botão "OK" + toast "✓ Salvo"
+- **API window.OrbitaAudio** (em `core.js`) com setters reais (`setMusic`, `setSfx`, `toggleMute`, `setMuted`, `isMuted`, `getMusic`, `getSfx`) — necessária porque `let menuMusicVol/sfxVol` são script-scoped (não acessíveis via `window.X = v`)
+- **Eleva sceneLevel pra 0.9 ao abrir painel** se música está ducked (PAUSE/DEAD), restaura ao fechar — pra slider ser audível em qualquer estado
+- **AudioContext suspende ao minimizar** (handler `visibilitychange` em `core.js`) — música para de tocar quando app vai pro background
 
 ### Splash tap-to-start
 - Splash NÃO some automaticamente; espera o user tocar
-- Texto "TOQUE PARA INICIAR" pulsante (i18n PT/EN/ES)
-- Tap inicializa AudioContext + esconde splash + revela menu **com música tocando**
-- Failsafe 30s: se ninguém tocar, esconde mesmo assim (audio inicializa em outro gesture)
+- Texto "TOQUE PARA INICIAR" **direto no HTML** (não dependente de JS) — i18n via JS swap pra EN/ES quando carrega
+- Listener **capture-phase no canvas** (em `flappy_radical_patch.js`) bloqueia pointerdown/touchstart/touchend/click/mousedown enquanto splash está no DOM, evitando que click sintético do Android WebView vaze pro `handleTap` e dispare `startRun`
+- `_splashAlive` flag + delay 50ms antes de adicionar `.hidden` — splash absorve click sintético até remoção do DOM
+- Failsafe 30s: se ninguém tocar, esconde mesmo assim
+- CSS auto-fade animation foi REMOVIDA (deixava splash invisível mas com pointer-events ativos → tap fantasma)
+
+### Reabertura do app (background → foreground)
+- Handler `visibilitychange` em `core.js` (linhas 20-30):
+  - **Hidden**: `actx.suspend()` — música/SFX param
+  - **Visible**: `actx.resume()` + força `resize()` (com retries em 80ms e 300ms) pra canvas re-medir viewport (Chrome Custom Tabs / TWA às vezes não dispara `resize` no return do background)
+- Handler `pageshow` faz resize adicional pra cobrir back-forward cache
 
 ### Psicologia (Flappy Bird-style)
 - Reforço de razão variável (mega bonus + lucky)
@@ -191,6 +205,8 @@ E em `js/core.js`:
 - [tools/assets-generator.html](tools/assets-generator.html) — gera ícones, feature graphic, screenshots via canvas. Suporta `?export=menu|play|feature` pra captura headless.
 - [tools/icon-generator.html](tools/icon-generator.html) — gerador interativo de ícone do app
 - [tools/_icon-export.html](tools/_icon-export.html) — página dedicada de export do ícone
+- [tools/playstore-screenshots.html](tools/playstore-screenshots.html) — drag-and-drop pra polir screenshots reais do celular em Play Store style. Suporta 3 tamanhos de saída: Phone 1080×2400, Tablet 7" 1080×1920, Tablet 10" 1440×2560. Headline + subhead editáveis com auto-fit.
+- [tools/feature-graphic.html](tools/feature-graphic.html) — gerador dedicado pra Feature Graphic 1024×500 (banner do topo da Play Store). Headline + subhead + tema editáveis.
 
 ### Documentação
 - [STORE_LISTING.md](STORE_LISTING.md) — texto pronto PT/EN pra Play Store
@@ -208,11 +224,12 @@ E em `js/core.js`:
 
 ## Roadmap pra Play Store
 
-### ✅ Já feito
-- Privacy policy v2 bilíngue
-- Splash tap-to-start (resolve "menu mudo")
-- Sentry crash reporting (precisa DSN real)
+### ✅ Já feito (até 2026-05-04)
+- Privacy policy v2.1 bilíngue (com Cloudflare + Sentry declarados como processadores, e-mail `lastorbit.contato@gmail.com`)
+- Splash tap-to-start com texto direto no HTML + capture-phase listener no canvas (fix do bug "tap vai pro jogo")
+- Sentry crash reporting (DSN ainda placeholder)
 - Botão Android back (PLAY→PAUSE→MENU→exit)
+- Pause música + força resize ao voltar do background (`visibilitychange` handler)
 - Renomeação JACKPOT → MEGA BÔNUS (gambling-safe)
 - Color-blind mode
 - Tradução PT/EN/ES com botão toggle
@@ -220,26 +237,37 @@ E em `js/core.js`:
 - Console silenciado em prod
 - Debug button locked em prod (5 camadas)
 - 2 perfis distintos de música menu vs play
-- Painel de volume (sliders Música/SFX + mute)
+- **Painel de áudio refeito**: API `window.OrbitaAudio` com setters reais, sliders Música/SFX/mute funcionando, botão "OK", toast "✓ Salvo", eleva sceneLevel se ducked
 - Master limiter + fade-in suave
 - Random pitch nos SFX (anti-fadiga)
 - Hospedado em HTTPS (Cloudflare Pages)
-- AAB assinado gerado via PWABuilder (`app.lastorbit.game`)
-- Backup do keystore feito
-- assetlinks.json válido (verificado pela API do Google)
+- **Conta Google Play Developer aprovada** (2026-05-04)
+- **Verificação de pacote no Play Console concluída** (chave pública + APK assinado com `assets/adi-registration.properties`)
+- AAB assinado em `C:\Users\galil\Downloads\Last Orbit - Google Play package (1)\Last Orbit.aab`
+- Keystore + senha em `C:\Users\galil\Downloads\Last Orbit - Google Play package (1)\` (arquivo `signing-key-info.txt`)
+- **assetlinks.json com 2 chaves SHA-256** (upload + Play App Signing) — chave do Google `1F:C2:EF:26:E6:E5:3E:83:35:C3:9A:B3:D2:25:6E:08:56:15:5C:AC:B3:4F:F4:4B:DC:2C:0C:A3:72:DE:50:2F`
 - Ícone do app (lua sorridente, gerado via canvas)
 - Feature graphic 1024×500
-- 2 phone screenshots (1080×2400)
-- Texto STORE_LISTING.md pronto PT+EN
+- 5 screenshots reais do celular (polidos via `tools/playstore-screenshots.html`)
+- STORE_LISTING.md atualizado (linha "Sem tutorial" → "aprende jogando nos 3 primeiros runs")
+- **Data Safety form completo** (3 categorias: Atividade no app, Informações de desempenho, ID do dispositivo)
+- **Content Rating completo** (Livre / Para Todos)
+- **Target audience**: 13+
+- **Apps de notícias/saúde/governo/financeiros**: Não
+- **Anúncios**: Não (corrigido depois — inicialmente foi marcado Sim por engano)
+- **Ficha da loja preenchida** com texto/categoria/email/privacy URL
+- **Suporte a tablet desativado** (apenas Phone) — pulou tablet screenshots
+- **Release no Teste Interno publicada e ativa** — link de opt-in: `https://play.google.com/apps/internaltest/4701254592733948037`
+- Lista de testers criada ("Testers Last Orbit", 3 emails)
 
-### ⏳ Pendente do USUÁRIO (não-código)
-1. **Conta Google Play Developer** — em criação ($25 one-time, 1-3 dias aprovação)
-2. **Criar conta Sentry + colar DSN** em `js/sentry_init.js:26`
-3. **Subir AAB no Play Console** (assim que conta aprovar)
-4. **Gravar vídeo trailer** (30-45s) — pode ser via OBS/Win+G no Chrome desktop em modo `--app=URL` device emulation
-5. **Tirar screenshots reais** do gameplay (substituir os gerados via canvas)
-6. **Preencher Data Safety form** no Play Console
-7. **Soft launch** → coletar dados → calibrar dificuldade
+### ⏳ Pendente do USUÁRIO
+1. **Reinstalar o app no celular** após v117 com assetlinks atualizado (pra TWA abrir sem barra do Chrome)
+2. **Testar todos os fluxos no Internal Testing**: splash, menu, painel de áudio, gameplay, pause, back-button, minimize/restaurar
+3. **Convidar amigos pra testar** (adicionar emails na lista de testers, máx 100)
+4. **Promover release pra Produção** quando confiante (passa por revisão Google de 3-7 dias)
+5. **Criar conta Sentry + colar DSN** em `js/sentry_init.js:26` (visibilidade de crashes em prod)
+6. **Gravar vídeo trailer** (30-45s, opcional, melhora conversão)
+7. **Soft launch** após aprovação → coletar dados → calibrar dificuldade
 
 ### 📋 Ainda no escopo de código (se ele pedir)
 - Recriar trigger anti-cheat v2 sem o bug (foi droppado, function/views ainda existem)
@@ -248,13 +276,20 @@ E em `js/core.js`:
 - Mover salt do anti-cheat client → 100% server (parcialmente feito)
 - Fatiar `flappy_radical_patch.js` em arquivos menores (~3000 linhas)
 - Calibrar `SPEED_MULTIPLIER` com dados reais via `analytics_run_end_v1`
+- Suporte a tablet (gerar screenshots 9:16 + reativar form factor na Play Console)
 
 ---
 
 ## Convenções importantes
 
 ### Cache versioning
-Toda mudança no código frontend → bumpar `CACHE_NAME` em `sw.js`. Atualmente: **`orbita-pwa-v109`**.
+Toda mudança no código frontend → bumpar `CACHE_NAME` em `sw.js`. Atualmente: **`orbita-pwa-v123`**.
+
+### Cache HTTP
+- `/sw.js`, `/index.html`: `max-age=0, must-revalidate` (sempre fresh)
+- `/js/*`: `max-age=300, must-revalidate` (5min — pra updates no APK chegarem rápido)
+- `/icons/*`: `max-age=86400` (1 dia)
+- `/manifest.webmanifest`: `max-age=3600`
 
 ### Salt — duas camadas
 - **Client salt** (`js/flappy_radical_patch.js:343`): `'orb1ta_p4tch_2026_kY9_xL4z'` — visível em DevTools, é "teatro" mas mantém compatibilidade com saves antigos

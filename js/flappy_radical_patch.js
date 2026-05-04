@@ -45,6 +45,8 @@
         if (state === ST.PLAY) {
           // Pausa o jogo
           state = ST.PAUSE;
+          // Guarda sceneLevel atual pra restaurar no despause (evita spike de volume)
+          try { window._prePauseSceneLevel = (typeof musicSceneLevel === 'number') ? musicSceneLevel : 0.12; } catch(e) {}
           if (typeof setMusicVolume === 'function') setMusicVolume(0.05);
           _backArmed = false;
           if (typeof _crumb === 'function') _crumb('navigation', 'back: play -> pause');
@@ -172,7 +174,11 @@
       if (typeof drawActionBtn === 'function') {
         drawActionBtn(btnX, H * 0.58, btnW, btnH, _t('continue_btn'), '#00f5d4', true, function(){
           state = ST.PLAY;
-          if (typeof setMusicVolume === 'function') setMusicVolume(0.95);
+          // Restaura ao sceneLevel pre-pause (default 0.12 do startRun) - NAO 0.95
+          // que era loud demais e causava spike de volume no despause.
+          const restoreLevel = (typeof window._prePauseSceneLevel === 'number')
+            ? window._prePauseSceneLevel : 0.12;
+          if (typeof setMusicVolume === 'function') setMusicVolume(restoreLevel);
         });
 
         drawActionBtn(btnX, H * 0.58 + btnH + 12, btnW, btnH, _t('main_menu'), '#ff6b9d', false, function(){
@@ -240,7 +246,9 @@
   // Splash com tap-to-start: necessario pra audio inicializar (browsers
   // exigem user gesture). Splash atualiza texto de "carregando..." pra
   // "TOQUE PARA INICIAR" quando o JS termina de carregar, depois espera o tap.
+  let _splashAlive = true;
   function _hideSplash(){
+    _splashAlive = false;  // marca imediatamente pra bloquear handleTap
     const el = document.getElementById('orbita-splash');
     if (!el) return;
     el.classList.add('hidden');
@@ -248,34 +256,71 @@
       if (el.parentNode) el.parentNode.removeChild(el);
     }, 600);
   }
+  // Bloqueia eventos no proprio canvas em capture phase (fires antes do
+  // listener original do canvas). Solucao mais robusta porque nao depende
+  // de stopImmediatePropagation cross-element nem de override do handleTap
+  // (que falha porque bare references resolvem via lexical scope, nao window).
+  function _splashBlockOnCanvas(e){
+    if (_splashAlive || document.getElementById('orbita-splash')) {
+      try { e.preventDefault(); e.stopImmediatePropagation(); } catch(_){}
+    }
+  }
+  try {
+    const _C = document.getElementById('c');
+    if (_C) {
+      ['pointerdown','touchstart','touchend','click','mousedown'].forEach(function(ev){
+        _C.addEventListener(ev, _splashBlockOnCanvas, { capture: true, passive: false });
+      });
+    }
+  } catch(_){}
   function _armSplashTapToStart(){
     const el = document.getElementById('orbita-splash');
     if (!el) return;
-    // Troca texto de "carregando..." pra "TOQUE PARA INICIAR"
-    const loading = el.querySelector('.splash-loading');
-    if (loading) {
+    // Atualiza texto pra idioma do navegador (HTML default eh pt-br).
+    const ctaEl = document.getElementById('splash-cta-text');
+    if (ctaEl) {
       const lang = (navigator.language || 'pt').toLowerCase();
-      const msg = lang.indexOf('pt') === 0 ? 'TOQUE PARA INICIAR'
-                : lang.indexOf('es') === 0 ? 'TOCA PARA EMPEZAR'
-                : 'TAP TO START';
-      loading.innerHTML = '<span class="splash-cta">' + msg + '</span>';
+      ctaEl.textContent = lang.indexOf('pt') === 0 ? 'TOQUE PARA INICIAR'
+                        : lang.indexOf('es') === 0 ? 'TOCA PARA EMPEZAR'
+                        : 'TAP TO START';
     }
-    // Tap em qualquer lugar do splash: inicializa audio e esconde
-    function _onSplashTap(){
-      el.removeEventListener('pointerdown', _onSplashTap);
-      el.removeEventListener('touchstart', _onSplashTap);
-      el.removeEventListener('click', _onSplashTap);
-      try { if (typeof initAudio === 'function') initAudio(); } catch(e) {}
-      _hideSplash();
+    // CAPTURE-PHASE listener no document: pega o tap ANTES de qualquer
+    // listener de canvas. Garante que canvas nao receba o evento e
+    // dispare startRun. Bloqueia ate splash sair do DOM (~1s).
+    let _splashDone = false;
+    function _capture(e){
+      const splash = document.getElementById('orbita-splash');
+      if (!splash) {
+        // Splash saiu do DOM, podemos liberar os listeners
+        document.removeEventListener('pointerdown', _capture, true);
+        document.removeEventListener('touchstart',  _capture, true);
+        document.removeEventListener('touchend',    _capture, true);
+        document.removeEventListener('click',       _capture, true);
+        document.removeEventListener('mousedown',   _capture, true);
+        return;
+      }
+      // Enquanto splash esta no DOM, BLOQUEIA TUDO (mesmo apos handle)
+      // pra absorver o click sintetico do Android WebView (~250-350ms depois).
+      try { e.preventDefault(); e.stopImmediatePropagation(); } catch(_){}
+      // Primeira interacao real: inicia hide do splash.
+      if (!_splashDone && (e.type === 'pointerdown' || e.type === 'touchstart' || e.type === 'mousedown')) {
+        _splashDone = true;
+        try { if (typeof initAudio === 'function') initAudio(); } catch(_){}
+        setTimeout(_hideSplash, 50);
+      }
     }
-    el.addEventListener('pointerdown', _onSplashTap, { passive: true });
-    el.addEventListener('touchstart', _onSplashTap, { passive: true });
-    el.addEventListener('click', _onSplashTap, { passive: true });
-    // Failsafe: se 30s sem tap (ex: usuario deixou aberto e foi fazer outra coisa),
-    // esconde mesmo assim pra nao travar o jogo. Audio so vai funcionar quando
-    // ele tocar em algum botao do menu (graca aos listeners globais em core.js).
+    document.addEventListener('pointerdown', _capture, true);
+    document.addEventListener('touchstart',  _capture, true);
+    document.addEventListener('touchend',    _capture, true);
+    document.addEventListener('click',       _capture, true);
+    document.addEventListener('mousedown',   _capture, true);
+    // Failsafe 30s
     setTimeout(function(){
-      if (el.parentNode) _onSplashTap();
+      if (!_splashDone && document.getElementById('orbita-splash')) {
+        _splashDone = true;
+        try { if (typeof initAudio === 'function') initAudio(); } catch(_){}
+        _hideSplash();
+      }
     }, 30000);
   }
   // Espera ao menos 2 frames de render + 150ms pro canvas ja ter desenhado algo
@@ -1911,9 +1956,9 @@
 
     for (const n of nodes) {
       if (!n) continue;
-      if (n.captured) continue;       // nos capturados nao precisam de hint
+      if (n.captured) continue;
       if (n.visible === false) continue;
-      if (!n.tier || n.tier === 'easy') continue;  // verde fica sem marca
+      if (!n.tier) continue;
 
       const nx = n.x - cam.x;
       const ny = n.y - cam.y;
@@ -1921,36 +1966,50 @@
 
       X.save();
       X.translate(nx, ny);
-      X.strokeStyle = '#ffffff';
-      X.lineWidth = 2.2;
+      // Anel branco em volta do no (acessibilidade primaria - todos os tiers)
+      X.strokeStyle = 'rgba(255,255,255,0.92)';
+      X.lineWidth = 2.4;
+      X.shadowColor = 'rgba(0,0,0,0.9)';
+      X.shadowBlur = 4;
+      X.beginPath();
+      X.arc(0, 0, r * 1.45, 0, Math.PI * 2);
+      X.stroke();
+
+      // Marcador FILLED (forma diferente por tier) com outline preto pra contraste
+      X.fillStyle = '#ffffff';
+      X.strokeStyle = 'rgba(0,0,0,0.85)';
+      X.lineWidth = 1.5;
       X.lineCap = 'round';
       X.lineJoin = 'round';
-      // Sombra preta atras do marcador pra contraste
-      X.shadowColor = 'rgba(0,0,0,0.85)';
-      X.shadowBlur = 4;
 
-      if (n.tier === 'medium') {
-        // triangulo apontando pra cima
-        const s = r * 0.55;
+      if (n.tier === 'easy') {
+        // CIRCULO solido (verde +1)
+        const s = r * 0.42;
+        X.beginPath();
+        X.arc(0, 0, s, 0, Math.PI * 2);
+        X.fill();
+        X.stroke();
+      } else if (n.tier === 'medium') {
+        // TRIANGULO solido apontando pra cima (vermelho +3)
+        const s = r * 0.62;
         X.beginPath();
         X.moveTo(0, -s);
         X.lineTo(s * 0.866, s * 0.5);
         X.lineTo(-s * 0.866, s * 0.5);
         X.closePath();
+        X.fill();
         X.stroke();
       } else if (n.tier === 'hard') {
-        // X cross
-        const s = r * 0.55;
+        // QUADRADO solido (azul +2)
+        const s = r * 0.45;
         X.beginPath();
-        X.moveTo(-s, -s);
-        X.lineTo(s, s);
-        X.moveTo(s, -s);
-        X.lineTo(-s, s);
+        X.rect(-s, -s, s * 2, s * 2);
+        X.fill();
         X.stroke();
       } else if (n.tier === 'gold') {
-        // estrela 4 pontas
-        const sl = r * 0.65;  // arm longo
-        const ss = r * 0.20;  // arm curto
+        // ESTRELA solida 4 pontas (dourado +6)
+        const sl = r * 0.72;
+        const ss = r * 0.22;
         X.beginPath();
         X.moveTo(0, -sl);
         X.lineTo(ss, -ss);
@@ -1961,6 +2020,7 @@
         X.lineTo(-sl, 0);
         X.lineTo(-ss, -ss);
         X.closePath();
+        X.fill();
         X.stroke();
       }
       X.restore();
@@ -2382,6 +2442,7 @@
       // Pause durante play
       if (state===ST.PLAY && typeof isPauseBtnTap === 'function' && isPauseBtnTap(x, y)) {
         state = ST.PAUSE;
+        try { window._prePauseSceneLevel = (typeof musicSceneLevel === 'number') ? musicSceneLevel : 0.12; } catch(e) {}
         if (typeof setMusicVolume === 'function') setMusicVolume(0.05);
         return;
       }

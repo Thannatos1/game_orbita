@@ -53,7 +53,9 @@ function drawPauseScreenModule(){
 
   drawActionBtn(btnX,H*0.58,btnW,btnH,'CONTINUAR','#00f5d4',true,()=>{
     state=ST.PLAY;
-    setMusicVolume(0.95);
+    // Restaura sceneLevel pre-pause em vez de pular pra 0.95 (evita spike de volume)
+    const restoreLevel = (typeof window._prePauseSceneLevel === 'number') ? window._prePauseSceneLevel : 0.12;
+    setMusicVolume(restoreLevel);
   });
 
   drawActionBtn(btnX,H*0.58+btnH+12,btnW,btnH,'MENU PRINCIPAL','#ff6b9d',false,()=>{

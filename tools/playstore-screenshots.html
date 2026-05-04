@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Last Orbit — Play Store Screenshots</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0a0a14;
+    color: #c8c8e0;
+    padding: 1.5rem 2rem 3rem;
+    line-height: 1.5;
+  }
+  h1 { color: #fff; font-size: 1.6rem; margin-bottom: 0.3rem; }
+  h1 small { font-size: 0.85rem; color: #6a6a88; font-weight: normal; }
+  p.lede { color: #8888aa; font-size: 0.9rem; margin-bottom: 1.5rem; max-width: 760px; }
+  .toolbar {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+    padding: 0.85rem 1rem;
+    background: #11112a;
+    border-radius: 8px;
+    border: 1px solid #1a1a30;
+  }
+  .toolbar label { font-size: 0.85rem; color: #a0a0c8; display: flex; align-items: center; gap: 0.4rem; }
+  .toolbar select, .toolbar input[type=color], .toolbar input[type=text] {
+    background: #1a1a30; border: 1px solid #2a2a44; color: #e0e0f0;
+    padding: 0.35rem 0.5rem; border-radius: 4px; font-size: 0.85rem;
+  }
+  button {
+    background: #00f5d4; color: #04060e; border: 0;
+    padding: 0.5rem 1rem; border-radius: 6px;
+    font-weight: 600; cursor: pointer; font-size: 0.85rem;
+  }
+  button.ghost { background: transparent; color: #00f5d4; border: 1px solid #00f5d4; }
+  button:hover { filter: brightness(1.1); }
+  .grid {
+    display: grid;
+    gap: 1.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  }
+  .card {
+    background: #11112a;
+    border-radius: 10px;
+    padding: 1rem;
+    border: 1px solid #1a1a30;
+    display: flex; flex-direction: column; gap: 0.6rem;
+  }
+  .card-header {
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .card-title { color: #fff; font-weight: 600; font-size: 0.95rem; }
+  .card-tag { font-family: monospace; color: #6a6a88; font-size: 0.75rem; }
+  .drop {
+    border: 2px dashed #2a2a44;
+    border-radius: 8px;
+    padding: 1.2rem 1rem;
+    text-align: center;
+    color: #6a6a88;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-size: 0.85rem;
+  }
+  .drop.hover { border-color: #00f5d4; color: #00f5d4; background: #0d1a26; }
+  .drop input { display: none; }
+  .field { display: flex; flex-direction: column; gap: 0.25rem; }
+  .field label { font-size: 0.75rem; color: #8888aa; text-transform: uppercase; letter-spacing: 0.05em; }
+  .field input, .field textarea, .field select {
+    background: #1a1a30; border: 1px solid #2a2a44; color: #e0e0f0;
+    padding: 0.4rem 0.55rem; border-radius: 4px; font-size: 0.85rem;
+    font-family: inherit; resize: vertical;
+  }
+  .field input:focus, .field textarea:focus, .field select:focus {
+    outline: none; border-color: #00f5d4;
+  }
+  .preview {
+    background: repeating-conic-gradient(#1a1a30 0% 25%, #14142a 0% 50%) 50% / 16px 16px;
+    border-radius: 6px;
+    overflow: hidden;
+    aspect-ratio: 9/20;
+  }
+  .preview canvas {
+    display: block; width: 100%; height: 100%;
+  }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+  .actions { display: flex; gap: 0.5rem; margin-top: 0.25rem; }
+  .actions button { flex: 1; }
+</style>
+</head>
+<body>
+
+<h1>Last Orbit — Play Store Screenshots <small>1080×2400 · 9:20</small></h1>
+<p class="lede">
+  Arraste suas screenshots reais de celular pra cada slot. Edita headline / subhead.
+  Exporta PNG no tamanho exato que a Play Store quer (1080×2400).
+  Uso recomendado: 5–8 screenshots, primeiras 2 são as que mais convertem.
+</p>
+
+<div class="toolbar">
+  <label>Tema:
+    <select id="globalTheme">
+      <option value="cyan">Ciano (menu)</option>
+      <option value="gold">Dourado (gameplay tier)</option>
+      <option value="purple">Roxo (bônus)</option>
+      <option value="red">Vermelho (death)</option>
+      <option value="custom">Custom</option>
+    </select>
+  </label>
+  <label>Cor base: <input type="color" id="globalColor" value="#00f5d4"></label>
+  <label>Marca:
+    <input type="text" id="brandTag" value="LAST ORBIT" style="width: 140px;">
+  </label>
+  <label>Tamanho saída:
+    <select id="outputSize">
+      <option value="phone">Phone 1080×2400 (9:20)</option>
+      <option value="tablet7">Tablet 7" 1080×1920 (9:16)</option>
+      <option value="tablet10">Tablet 10" 1440×2560 (9:16)</option>
+    </select>
+  </label>
+  <button id="exportAll" class="ghost">Baixar todos</button>
+</div>
+
+<div class="grid" id="cardsGrid"></div>
+
+<canvas id="exportCanvas" width="1080" height="2400" style="display:none;"></canvas>
+
+<script>
+const SLOTS = [
+  { id: 1, suggest: { theme: 'cyan',   headline: 'UM TOQUE.\nSOLTE.',         sub: 'A bola orbita. Você decide quando soltar.' } },
+  { id: 2, suggest: { theme: 'gold',   headline: 'PEGUE\nO OURO',             sub: '+5× pontos no nó dourado. Brutal desde o cano 1.' } },
+  { id: 3, suggest: { theme: 'red',    headline: 'BRONZE → OURO',             sub: 'Reinício instantâneo. Evolua a cada tentativa.' } },
+  { id: 4, suggest: { theme: 'purple', headline: 'BÔNUS A QUALQUER\nMOMENTO', sub: 'Mega Bônus 5× e Lucky 2× a cada captura.' } },
+  { id: 5, suggest: { theme: 'gold',   headline: 'O VISUAL EVOLUI\nCOM VOCÊ', sub: 'Cinco tiers de paleta. Quanto maior o recorde, mais lindo.' } }
+];
+
+const THEMES = {
+  cyan:   { primary: '#00f5d4', secondary: '#7aa8ff', bg1: '#04111a', bg2: '#0a2030' },
+  gold:   { primary: '#ffd166', secondary: '#ff9933', bg1: '#1a1004', bg2: '#2a2008' },
+  purple: { primary: '#d672ff', secondary: '#8a5cff', bg1: '#1a0a26', bg2: '#26143d' },
+  red:    { primary: '#ff5577', secondary: '#ff9988', bg1: '#1a0411', bg2: '#260a1a' },
+  custom: { primary: '#00f5d4', secondary: '#7aa8ff', bg1: '#04111a', bg2: '#0a2030' }
+};
+
+const grid = document.getElementById('cardsGrid');
+const exportCanvas = document.getElementById('exportCanvas');
+const exportCtx = exportCanvas.getContext('2d');
+const brandTagInput = document.getElementById('brandTag');
+const globalTheme = document.getElementById('globalTheme');
+const globalColor = document.getElementById('globalColor');
+
+const state = SLOTS.map(s => ({
+  id: s.id,
+  image: null,
+  imageURL: null,
+  theme: s.suggest.theme,
+  headline: s.suggest.headline,
+  sub: s.suggest.sub
+}));
+
+function buildCards() {
+  state.forEach((slot, i) => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="card-header">
+        <div class="card-title">Screenshot ${slot.id}</div>
+        <div class="card-tag">1080×2400</div>
+      </div>
+      <label class="drop" data-slot="${i}">
+        <span class="drop-text">Arraste imagem ou clique</span>
+        <input type="file" accept="image/*">
+      </label>
+      <div class="field">
+        <label>Headline (use \\n pra quebrar linha)</label>
+        <textarea data-field="headline" data-slot="${i}" rows="2">${slot.headline}</textarea>
+      </div>
+      <div class="field">
+        <label>Subhead</label>
+        <input type="text" data-field="sub" data-slot="${i}" value="${slot.sub}">
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>Tema</label>
+          <select data-field="theme" data-slot="${i}">
+            ${Object.keys(THEMES).map(t => `<option value="${t}" ${slot.theme===t?'selected':''}>${t}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button class="ghost" data-action="download" data-slot="${i}">Baixar PNG</button>
+        </div>
+      </div>
+      <div class="preview"><canvas data-slot="${i}" width="540" height="1200"></canvas></div>
+    `;
+    grid.appendChild(card);
+  });
+
+  grid.querySelectorAll('.drop').forEach(drop => {
+    const i = +drop.dataset.slot;
+    const input = drop.querySelector('input');
+    drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('hover'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('hover'));
+    drop.addEventListener('drop', e => {
+      e.preventDefault(); drop.classList.remove('hover');
+      const f = e.dataTransfer.files[0]; if (f) loadImage(i, f);
+    });
+    input.addEventListener('change', e => {
+      const f = e.target.files[0]; if (f) loadImage(i, f);
+    });
+  });
+
+  grid.querySelectorAll('[data-field]').forEach(el => {
+    el.addEventListener('input', () => {
+      const i = +el.dataset.slot;
+      state[i][el.dataset.field] = el.value;
+      renderPreview(i);
+    });
+  });
+
+  grid.querySelectorAll('[data-action="download"]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault();
+      downloadOne(+btn.dataset.slot);
+    });
+  });
+}
+
+function loadImage(idx, file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = new Image();
+    img.onload = () => {
+      state[idx].image = img;
+      state[idx].imageURL = e.target.result;
+      const drop = grid.querySelectorAll('.drop')[idx];
+      drop.querySelector('.drop-text').textContent = `✓ ${file.name}`;
+      drop.style.borderColor = '#00f5d4';
+      drop.style.color = '#00f5d4';
+      renderPreview(idx);
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function compose(ctx, w, h, slot) {
+  const themeKey = slot.theme === 'custom' ? 'custom' : slot.theme;
+  const theme = { ...THEMES[themeKey] };
+  if (themeKey === 'custom') theme.primary = globalColor.value;
+
+  // Background gradient
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, theme.bg1);
+  grad.addColorStop(0.6, '#04050d');
+  grad.addColorStop(1, '#02030a');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+
+  // Stars
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  let seed = slot.id * 9301 + 49297;
+  for (let i = 0; i < 60; i++) {
+    seed = (seed * 9301 + 49297) % 233280;
+    const x = (seed / 233280) * w;
+    seed = (seed * 9301 + 49297) % 233280;
+    const y = (seed / 233280) * h;
+    seed = (seed * 9301 + 49297) % 233280;
+    const r = (seed / 233280) * 2.2 + 0.4;
+    ctx.globalAlpha = 0.25 + (seed / 233280) * 0.5;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // Glow accent (top-right)
+  const glow = ctx.createRadialGradient(w * 0.85, h * 0.08, 0, w * 0.85, h * 0.08, w * 0.6);
+  glow.addColorStop(0, theme.primary + '33');
+  glow.addColorStop(1, 'transparent');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, w, h);
+
+  // Headline com auto-fit: mede cada linha e reduz fonte ate caber em 88% da largura.
+  const lines = (slot.headline || '').split('\\n').filter(s => s.length);
+  const maxWidth = w * 0.88;
+  const baseSize = w * 0.115;
+  const startSize = lines.length > 2 ? baseSize * 0.85 : baseSize;
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.shadowColor = theme.primary + 'aa';
+  ctx.shadowBlur = 22;
+  // Calcula o menor fontSize que faz TODAS as linhas caberem (uniforme).
+  let fontSize = startSize;
+  for (const line of lines) {
+    const upper = line.toUpperCase();
+    let size = fontSize;
+    while (size > 18) {
+      ctx.font = `900 ${size}px -apple-system, "Segoe UI", Roboto, sans-serif`;
+      if (ctx.measureText(upper).width <= maxWidth) break;
+      size *= 0.95;
+    }
+    if (size < fontSize) fontSize = size;
+  }
+  let yCursor = h * 0.07;
+  ctx.font = `900 ${fontSize}px -apple-system, "Segoe UI", Roboto, sans-serif`;
+  lines.forEach(line => {
+    ctx.fillText(line.toUpperCase(), w / 2, yCursor);
+    yCursor += fontSize * 1.05;
+  });
+  ctx.shadowBlur = 0;
+
+  // Subhead
+  if (slot.sub) {
+    ctx.font = `500 ${w * 0.034}px -apple-system, "Segoe UI", Roboto, sans-serif`;
+    ctx.fillStyle = theme.primary;
+    yCursor += w * 0.025;
+    wrapText(ctx, slot.sub, w / 2, yCursor, w * 0.86, w * 0.045);
+  }
+
+  // Screenshot frame
+  if (slot.image) {
+    const img = slot.image;
+    const frameW = w * 0.78;
+    const frameH = frameW * (img.height / img.width);
+    const frameX = (w - frameW) / 2;
+    const frameY = h * 0.42;
+    const radius = w * 0.04;
+
+    // Drop shadow
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.65)';
+    ctx.shadowBlur = 60;
+    ctx.shadowOffsetY = 24;
+    roundRect(ctx, frameX, frameY, frameW, frameH, radius);
+    ctx.fillStyle = '#000';
+    ctx.fill();
+    ctx.restore();
+
+    // Image clipped
+    ctx.save();
+    roundRect(ctx, frameX, frameY, frameW, frameH, radius);
+    ctx.clip();
+    ctx.drawImage(img, frameX, frameY, frameW, frameH);
+    ctx.restore();
+
+    // Subtle border glow
+    ctx.save();
+    roundRect(ctx, frameX, frameY, frameW, frameH, radius);
+    ctx.strokeStyle = theme.primary + '55';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    ctx.restore();
+  } else {
+    // Empty state
+    const fx = w * 0.11, fy = h * 0.42, fw = w * 0.78, fh = h * 0.5;
+    ctx.strokeStyle = '#2a2a44';
+    ctx.setLineDash([12, 12]);
+    ctx.lineWidth = 3;
+    roundRect(ctx, fx, fy, fw, fh, 30);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#4a4a66';
+    ctx.font = `500 ${w * 0.04}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('Arraste a screenshot aqui', w / 2, fy + fh / 2);
+  }
+
+  // Brand strip at bottom
+  ctx.fillStyle = theme.primary;
+  ctx.font = `700 ${w * 0.026}px -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.letterSpacing = '0.3em';
+  ctx.fillText(brandTagInput.value, w / 2, h - h * 0.025);
+}
+
+function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = text.split(' ');
+  let line = '';
+  const lines = [];
+  for (const w of words) {
+    const test = line ? line + ' ' + w : w;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      lines.push(line); line = w;
+    } else line = test;
+  }
+  if (line) lines.push(line);
+  lines.forEach((l, i) => ctx.fillText(l, x, y + i * lineHeight));
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function renderPreview(idx) {
+  const canvas = grid.querySelector(`canvas[data-slot="${idx}"]`);
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  compose(ctx, canvas.width, canvas.height, state[idx]);
+}
+
+const OUTPUT_SIZES = {
+  phone:    { w: 1080, h: 2400, suffix: 'phone' },
+  tablet7:  { w: 1080, h: 1920, suffix: 'tablet7' },
+  tablet10: { w: 1440, h: 2560, suffix: 'tablet10' }
+};
+
+function downloadOne(idx) {
+  const slot = state[idx];
+  const sizeKey = document.getElementById('outputSize').value;
+  const sz = OUTPUT_SIZES[sizeKey];
+  exportCanvas.width = sz.w;
+  exportCanvas.height = sz.h;
+  exportCtx.clearRect(0, 0, sz.w, sz.h);
+  compose(exportCtx, sz.w, sz.h, slot);
+  exportCanvas.toBlob(blob => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `playstore-${sz.suffix}-${idx + 1}.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }, 'image/png');
+}
+
+document.getElementById('exportAll').addEventListener('click', async () => {
+  for (let i = 0; i < state.length; i++) {
+    if (state[i].image) {
+      downloadOne(i);
+      await new Promise(r => setTimeout(r, 400));
+    }
+  }
+});
+
+globalTheme.addEventListener('change', () => {
+  state.forEach((s, i) => {
+    if (globalTheme.value !== 'mixed') {
+      // skip — só muda individual via select do card
+    }
+  });
+});
+
+buildCards();
+state.forEach((_, i) => renderPreview(i));
+</script>
+
+</body>
+</html>

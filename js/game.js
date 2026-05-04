@@ -903,6 +903,7 @@ function handleTap(x, y){
   // Check pause button tap during play
   if(state===ST.PLAY && isPauseBtnTap(x, y)){
     state=ST.PAUSE;
+    try { window._prePauseSceneLevel = (typeof musicSceneLevel === 'number') ? musicSceneLevel : 0.12; } catch(e) {}
     setMusicVolume(0.05);
     return;
   }
