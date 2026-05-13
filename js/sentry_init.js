@@ -23,11 +23,11 @@
   'use strict';
 
   // === SUBSTITUA AQUI PELO SEU DSN REAL ===
-  const SENTRY_DSN = 'https://YOUR_KEY@oYOUR_ORG.ingest.us.sentry.io/YOUR_PROJECT';
+  const SENTRY_DSN = 'https://d580d53e1fdf2ab50fdb25b32a1f9af8@o4511385234898944.ingest.us.sentry.io/4511385246957568';
   // ========================================
 
   // Pula init se DSN nao foi configurado (mantem o jogo funcionando)
-  if (!SENTRY_DSN || SENTRY_DSN.indexOf('YOUR_KEY') !== -1) {
+  if (!SENTRY_DSN || SENTRY_DSN.indexOf('YOUR_KEY') !== -1 || SENTRY_DSN.indexOf('YOUR_PROJECT') !== -1) {
     if (typeof console !== 'undefined' && console.info) {
       console.info('[orbita] Sentry desativado. Configure DSN em js/sentry_init.js pra ativar.');
     }
@@ -46,7 +46,7 @@
       dsn: SENTRY_DSN,
 
       // Marque a versao do build pra agrupar erros por release
-      release: 'orbita@1.0.0',
+      release: 'orbita@1.0.124',
 
       // Ambiente: dev em localhost, prod em outros hosts
       environment: (typeof location !== 'undefined' && location.hostname === 'localhost')
