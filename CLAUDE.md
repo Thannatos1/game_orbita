@@ -13,7 +13,7 @@
 
 **URL prod ativa**: `https://lastorbit-app.pages.dev` (Cloudflare Pages, deploy via wrangler CLI)
 **Track Play Store (Internal)**: `https://play.google.com/apps/internaltest/4701254592733948037`
-**Cache atual**: `orbita-pwa-v123` em `sw.js`
+**Cache atual**: `orbita-pwa-v125` em `sw.js`
 
 > **Nota de branding (2026-04):** O nome de marca mudou de "Órbita" (PT-BR) pra "Last Orbit" (global). O codename interno permanece `orbita` em **todas** as referências técnicas (`orbita_*` no localStorage, `_AC_SALT='orb1ta_…'`, `CACHE_NAME='orbita-pwa-…'`, `OrbitaI18n`, `[Orbita]` em logs, `tags: { game: 'orbita' }` no Sentry, `release: 'orbita@…'`). **Não renomear codename** — quebraria saves de testers e invalidaria sigs anti-cheat existentes.
 
@@ -283,7 +283,7 @@ E em `js/core.js`:
 ## Convenções importantes
 
 ### Cache versioning
-Toda mudança no código frontend → bumpar `CACHE_NAME` em `sw.js`. Atualmente: **`orbita-pwa-v123`**.
+Toda mudança no código frontend → bumpar `CACHE_NAME` em `sw.js`. Atualmente: **`orbita-pwa-v125`**.
 
 ### Cache HTTP
 - `/sw.js`, `/index.html`: `max-age=0, must-revalidate` (sempre fresh)

@@ -46,7 +46,7 @@
       dsn: SENTRY_DSN,
 
       // Marque a versao do build pra agrupar erros por release
-      release: 'orbita@1.0.124',
+      release: 'orbita@1.0.126',
 
       // Ambiente: dev em localhost, prod em outros hosts
       environment: (typeof location !== 'undefined' && location.hostname === 'localhost')

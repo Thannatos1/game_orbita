@@ -2,7 +2,7 @@
 
 > Cole esse conteúdo na próxima sessão pra contexto rápido. Leia também `CLAUDE.md`.
 
-**Última atualização**: 2026-05-04 (v123: simplificação — auto-mute/unmute via flag `muted`, sem suspend/kill complexo)
+**Última atualização**: 2026-05-04 (v125: opção nuclear — `actx.close()` ao minimizar, recria AudioContext no return)
 **Owner**: Galileu (galileuneto146@gmail.com) · suporte público: `lastorbit.contato@gmail.com`
 **Branding**: Last Orbit (codename interno: `orbita`)
 
@@ -45,13 +45,24 @@
     - Fix: array `_activeNodes` rastreia todos os oscillators criados em `playChord()` (sub bass + 6 pads + shimmer = 8 nodes/chord). `window._killAllMusicNodes()` zera os gain individuais, faz `osc.stop(now+0.01)` e `disconnect()` em todos. Chamado em `_muteForBackground()` ANTES do `actx.suspend()`
     - Lista é limpa de nodes expirados (`_cleanExpiredNodes()`) a cada nova chord pra não vazar memória
     - `_unmuteFromBackground()` agora deixa `musicMasterGain.value = 0` e o ramp 0→0.92 é feito por `_restartMusicScheduler()` na hora exata que a primeira chord nova arranca (timing perfeito, sem leftover audio)
-15. **Simplificação (v123 — solução definitiva por elegância)**:
+15. **Simplificação (v123 — solução por elegância)**:
     - Sugestão do user: "muta sozinho ao minimizar, desmuta ao voltar"
     - Substitui toda lógica complexa (kill nodes + suspend + master gain ramp) por simples toggle do flag `muted` que já existe
     - `_muteForBackground()`: se user não estava mutado, marca `_autoMutedByBg=true` + seta `muted=true` + `refreshMusicGain(0.08)` (fade-out 80ms)
     - `_unmuteFromBackground()`: se foi auto-mute, restaura `muted=false` + `refreshMusicGain(0.3)` (fade-in 300ms) + `_restartMusicScheduler` pra continuar gerando chords
     - Se user estava mutado manualmente antes de minimizar, **respeita isso** ao voltar (não desfaz mute)
-    - **Nota**: `_killAllMusicNodes` e `_activeNodes` ainda existem (rastreamento mantido), mas não são chamados no fluxo de background — ficam disponíveis pra debug/futuro
+16. **v123 puro tinha gap → v124 (combina simplicidade + kill leftover)**:
+    - Bug residual em v123: oscillators que estavam tocando ANTES do minimize ficavam vivos dentro de `musicGain` (silenciados via gain=0). Quando user retornava e o gain ramp 0→target subia em 300ms, os leftovers ficavam audíveis brevemente
+    - Fix v124: `_muteForBackground()` agora chama `window._killAllMusicNodes()` (que estava órfão em v123) ANTES de retornar — mata todos os 8 oscillators da chord ativa
+    - Trava de visibilidade no `playChord()` continua: `if (document.hidden) { _chordTimer = null; return; }` — não agenda novas chords em background
+    - Combinação: simplicidade do toggle muted + cleanup definitivo dos leftovers = sem som fantasma no return
+17. **v125 (OPÇÃO NUCLEAR — fix final)**:
+    - User reportou que mesmo v124 ainda tinha leftover audio em alguns devices/timings
+    - Solução: ao minimizar, `actx.close()` **destrói o AudioContext inteiro**. Mata oscillators, gains, scheduling, libera memória. Audio system OFF total
+    - Reseta TODAS variáveis pra null: `actx`, `musicGain`, `musicMasterGain`, `musicCompressor`, `sfxGain`, `sfxOutputGain`, `masterLimiter`, etc + `musicStarted = false`
+    - No return, `_unmuteFromBackground` tenta recriar AudioContext após 100ms (browsers permitem se já teve gesture na sessão). Caso falhe, listener global `_ensureAudio` (em qualquer pointerdown/touchstart/click) re-cria
+    - Vantagem: **fisicamente impossível vazar som em background** porque o sistema de áudio não existe mais
+    - Trade-off: pequeno gap de ~100ms ao voltar antes da música retomar (aceitável, hyper-casual game)
 
 ---
 
@@ -59,7 +70,7 @@
 
 | Arquivo | Versão |
 |---|---|
-| `sw.js` `CACHE_NAME` | **`orbita-pwa-v123`** |
+| `sw.js` `CACHE_NAME` | **`orbita-pwa-v125`** |
 | AAB enviado no Play Console | 1.0.0.0 (em Teste Interno, publicado) |
 | Privacy policy | v2.1 (3 mai 2026, com Cloudflare + Sentry declarados) |
 | `assetlinks.json` | 2 fingerprints: upload + Google Play Signing |
@@ -85,7 +96,7 @@
 ## 🔄 Como deployar (mesmo de antes)
 
 1. Editar arquivos em `C:\Users\galil\OneDrive\Desktop\Orbita_simples\`
-2. Bumpar `CACHE_NAME` em `sw.js` (atualmente em `v123`, próximo é v124)
+2. Bumpar `CACHE_NAME` em `sw.js` (atualmente em `v125`, próximo é v126)
 3. Atualizar `APP_SHELL` em `sw.js` se adicionou/renomeou JS
 4. Refresh deploy folder + deploy:
 

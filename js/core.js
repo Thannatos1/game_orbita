@@ -17,36 +17,40 @@ window.addEventListener('resize', resize);
 // de tamanho (ex: barra de URL aparece/some). Isso deixava o canvas preso no
 // tamanho antigo (UI no canto, resto preto). Forca resize ao voltar.
 // Tambem suspende o AudioContext pra musica nao continuar tocando minimizado.
-// ============ HANDLERS DE BACKGROUND (simples: auto-mute/unmute) ============
-// Estrategia simples: minimizar = auto-mute (sem salvar no localStorage),
-// voltar = auto-unmute. Usa o sistema 'muted' existente. Se o user JA estava
-// mutado manualmente, nao desfaz isso ao voltar.
-let _autoMutedByBg = false;
+// ============ HANDLERS DE BACKGROUND (NUCLEAR: destroi tudo) ============
+// Quando minimiza, fecha o AudioContext inteiro (actx.close()). Mata
+// oscillators, gains, scheduling, libera memoria. Audio system OFF total.
+// Quando volta, _ensureAudio (listener global) re-cria tudo do zero ao
+// proximo tap/click. Nao tem como vazar audio porque o sistema nao existe.
 
 function _muteForBackground() {
   if (!actx) return;
-  if (!muted) {
-    _autoMutedByBg = true;
-    muted = true;
-    if (typeof refreshMusicGain === 'function') refreshMusicGain(0.08);
-  }
+  try {
+    if (typeof window._killAllMusicNodes === 'function') window._killAllMusicNodes();
+  } catch(e) {}
+  try { actx.close(); } catch(e) {}
+  // Reseta TODAS as referencias pra forcar reinit no proximo tap
+  actx = null;
+  musicStarted = false;
+  musicGain = null;
+  musicDuckGain = null;
+  musicMasterGain = null;
+  musicCompressor = null;
+  sfxGain = null;
+  sfxCompressor = null;
+  sfxOutputGain = null;
+  masterLimiter = null;
 }
 
 function _unmuteFromBackground() {
-  if (!actx) return;
-  // Resume AudioContext se foi suspended (Android as vezes faz isso sozinho)
-  if (actx.state === 'suspended') {
-    actx.resume().catch(()=>{});
-  }
-  if (_autoMutedByBg) {
-    _autoMutedByBg = false;
-    muted = false;
-    if (typeof refreshMusicGain === 'function') refreshMusicGain(0.3);
-  }
-  // Restart scheduler de chord (caso tenha parado por document.hidden)
-  if (typeof window._restartMusicScheduler === 'function') {
-    setTimeout(window._restartMusicScheduler, 80);
-  }
+  // Nada a fazer aqui — _ensureAudio (listener global em core.js) detecta
+  // o proximo tap/click/keydown e chama initAudio() que recria tudo.
+  // Pra acelerar caso o user demore a tocar, dispara init no proximo frame.
+  // (Browsers permitem AudioContext criado fora de gesture se ja teve gesture
+  //  na pagina nessa sessao.)
+  setTimeout(() => {
+    try { if (!actx && typeof initAudio === 'function') initAudio(); } catch(e) {}
+  }, 100);
 }
 
 document.addEventListener('visibilitychange', () => {
