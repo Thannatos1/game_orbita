@@ -198,7 +198,53 @@
   // (precisa rodar antes do helper _t mas referencia OrbitaI18n direto)
   if (typeof window !== 'undefined' && typeof window.addScorePopup === 'function') {
     const _origAddScorePopup = window.addScorePopup;
+    function _popupKind(rawText, shownText){
+      const raw = String(rawText || '').toUpperCase();
+      const shown = String(shownText || '').toUpperCase();
+      const all = raw + ' ' + shown;
+      if (all.indexOf('MEGA') >= 0) return 'mega';
+      if (all.indexOf('COMBO') >= 0) return 'combo';
+      if (all.indexOf('OURO') >= 0 || all.indexOf('GOLD') >= 0 || all.indexOf('ORO') >= 0) return 'gold';
+      if (all.indexOf('X2') >= 0 || all.indexOf('BÔNUS') >= 0 || all.indexOf('BONUS') >= 0 || all.indexOf('BONO') >= 0) return 'bonus';
+      if (/^\+\d/.test(raw)) return 'score';
+      return 'other';
+    }
+    function _clampNumber(v, lo, hi){
+      return Math.max(lo, Math.min(hi, v));
+    }
+    function _tuneScorePopup(p, sourceX, sourceY, kind){
+      if (!p || kind === 'other') return;
+      if (kind === 'score') {
+        p.life = 0.72;
+        p.vy = -38;
+        p.fontSize = 14;
+        p.maxAlpha = 0.62;
+        p.shadowBlur = 0;
+        return;
+      }
+
+      p.life = kind === 'mega' ? 0.95 : 0.78;
+      p.vy = kind === 'mega' ? -78 : -66;
+      p.fontSize = kind === 'mega' ? 17 : 15;
+      p.maxAlpha = kind === 'mega' ? 0.86 : 0.74;
+      p.shadowColor = p.color;
+      p.shadowBlur = kind === 'mega' ? 12 : 8;
+
+      // Move feedback especial para uma faixa lateral: ainda celebra, mas
+      // nao cobre a bola, o proximo no ou a linha mental de timing.
+      try {
+        if (typeof cam === 'undefined' || !cam || typeof W !== 'number' || typeof H !== 'number') return;
+        const sx = Number(sourceX) - cam.x;
+        const sy = Number(sourceY) - cam.y;
+        const side = sx < W * 0.5 ? -1 : 1;
+        const laneX = side < 0 ? W * 0.24 : W * 0.76;
+        const laneY = _clampNumber(sy - (kind === 'mega' ? 118 : 96), H * 0.18, H * 0.38);
+        p.x = cam.x + _clampNumber(laneX, 56, W - 56);
+        p.y = cam.y + laneY;
+      } catch(e) {}
+    }
     window.addScorePopup = function(x, y, text, color){
+      const rawText = text;
       try {
         if (typeof text === 'string' && window.OrbitaI18n) {
           const T = window.OrbitaI18n.t;
@@ -214,7 +260,15 @@
           }
         }
       } catch(e) {}
-      return _origAddScorePopup.call(this, x, y, text, color);
+      const kind = _popupKind(rawText, text);
+      const beforeLen = (typeof scorePopups !== 'undefined' && Array.isArray(scorePopups)) ? scorePopups.length : -1;
+      const result = _origAddScorePopup.call(this, x, y, text, color);
+      try {
+        if (beforeLen >= 0 && scorePopups.length > beforeLen) {
+          _tuneScorePopup(scorePopups[scorePopups.length - 1], x, y, kind);
+        }
+      } catch(e) {}
+      return result;
     };
   }
 
@@ -345,6 +399,9 @@
   //   1.75 = Brutal
   //   1.85+ = praticamente impossivel
   const SPEED_MULTIPLIER = 1.50;
+  // Mantem pontuacoes altas no limite de antecipacao humana. Sem este teto,
+  // a curva chegava a ~12 rad/s no score 100 e ~14 rad/s perto do score 190.
+  const MAX_ORBIT_SPEED = 8.50;
 
   // Probabilidade de bonus aleatorio em cada captura (recompensa imprevisivel).
   const MEGA_BONUS_CHANCE = 0.04;  // 4% = 5x pontos
@@ -353,20 +410,28 @@
   // Limite do near-miss: distancia da bola ao centro do no nao
   // capturado em fracao do captureR. <= 0.7x = era pra ter pegado.
   const NEAR_MISS_MAX_OVERSHOOT = 0.7;
+  const RELEASE_TIMING_THRESHOLD_DEG = 7;
+  const RUN_DURATION_TELEMETRY_CAP_S = 180;
 
   // Estado psicologico da run atual (resetado em cada startRun).
   let _nearMissData = null;       // {nodeX, nodeY, captureR, ballX, ballY, tier, distance}
+  let _deathReason = 'unknown';    // near_miss | too_early | too_late | wrong_target | no_route | missed_timing
+  let _deathReasonMeta = null;     // snapshot numerico pra telemetria/debug
+  let _lastReleaseSnapshot = null;  // timing medido no release, antes da bola fugir do alvo
   let _captureFlashT = 0;          // 0..1 - flash branco curto em capturas
   let _lastBonusType = null;       // 'mega' | 'lucky' | null - ultimo bonus pra som ascendente
 
   // Analytics (retencao). Persistido em localStorage.
   let _runStartT = 0;
   let _captureCount = 0;
+  let _releaseCount = 0;
 
   // Snapshot do estado da run pra exibir na tela de morte
   let _currentDeathPhrase = '';
   let _currentDayStreak = 1;
   let _runDurationS = 0;
+  let _runDurationRawS = 0;
+  let _runDurationWasCapped = false;
   let _runMaxCombo = 0;
 
   // Estado pro menu inicial
@@ -382,6 +447,26 @@
       return h !== 'localhost' && h !== '127.0.0.1' && h !== '';
     } catch(e) { return true; }
   })();
+  const _TEST_AREA_UNLOCKED = (function(){
+    if (!_IS_PROD) return true;
+    try {
+      const q = new URLSearchParams((location && location.search) || '');
+      if (q.get('test_area') === '0' || q.get('orbita_test_area') === '0') {
+        localStorage.removeItem('orbita_test_area');
+        return false;
+      }
+      if (q.get('test_area') === '1' || q.get('orbita_test_area') === '1') {
+        localStorage.setItem('orbita_test_area', '1');
+        return true;
+      }
+      return localStorage.getItem('orbita_test_area') === '1';
+    } catch(e) {
+      return false;
+    }
+  })();
+  function _canUseTestArea(){
+    return !_IS_PROD || _TEST_AREA_UNLOCKED;
+  }
 
   // Modo debug (sem morte). Persistido em localStorage pra sobreviver reload.
   // Em prod: SEMPRE false, ignora valor persistido (impede tester com flag antiga
@@ -402,6 +487,73 @@
     try { localStorage.setItem('orbita_debug_mode', _debugMode ? '1' : '0'); } catch(e) {}
   }
 
+  let _testProgressSnapshot = null;
+  function _cloneForTestSnapshot(v){
+    try { return JSON.parse(JSON.stringify(v)); } catch(e) { return v; }
+  }
+  function _captureTestProgressSnapshot(){
+    try {
+      return {
+        best: (typeof best === 'number') ? best : 0,
+        totalGames: (typeof totalGames === 'number') ? totalGames : 0,
+        totalGoldCaptured: (typeof totalGoldCaptured === 'number') ? totalGoldCaptured : 0,
+        zenUnlocked: (typeof zenUnlocked !== 'undefined') ? !!zenUnlocked : false,
+        totalScoreEver: (typeof totalScoreEver === 'number') ? totalScoreEver : 0,
+        totalNodesEver: (typeof totalNodesEver === 'number') ? totalNodesEver : 0,
+        bestComboEver: (typeof bestComboEver === 'number') ? bestComboEver : 0,
+        highestPhase: (typeof highestPhase === 'number') ? highestPhase : 1,
+        unlockedSkins: Array.isArray(unlockedSkins) ? unlockedSkins.slice() : ['default'],
+        unlockedBgs: Array.isArray(unlockedBgs) ? unlockedBgs.slice() : ['space'],
+        achievements: Array.isArray(achievements) ? achievements.slice() : [],
+        dailyMissionState: _cloneForTestSnapshot(typeof dailyMissionState !== 'undefined' ? dailyMissionState : null),
+        missionsCompletedTotal: (typeof missionsCompletedTotal === 'number') ? missionsCompletedTotal : 0
+      };
+    } catch(e) {
+      return null;
+    }
+  }
+  function _restoreTestProgressSnapshot(saveAfterRestore){
+    const s = _testProgressSnapshot;
+    if (!s) return;
+    try {
+      if (typeof best === 'number') best = s.best;
+      if (typeof totalGames === 'number') totalGames = s.totalGames;
+      if (typeof totalGoldCaptured === 'number') totalGoldCaptured = s.totalGoldCaptured;
+      if (typeof zenUnlocked !== 'undefined') zenUnlocked = !!s.zenUnlocked;
+      if (typeof totalScoreEver === 'number') totalScoreEver = s.totalScoreEver;
+      if (typeof totalNodesEver === 'number') totalNodesEver = s.totalNodesEver;
+      if (typeof bestComboEver === 'number') bestComboEver = s.bestComboEver;
+      if (typeof highestPhase === 'number') highestPhase = s.highestPhase;
+      if (Array.isArray(unlockedSkins)) unlockedSkins = s.unlockedSkins.slice();
+      if (Array.isArray(unlockedBgs)) unlockedBgs = s.unlockedBgs.slice();
+      if (Array.isArray(achievements)) achievements = s.achievements.slice();
+      if (typeof dailyMissionState !== 'undefined') dailyMissionState = _cloneForTestSnapshot(s.dailyMissionState);
+      if (typeof missionsCompletedTotal === 'number') missionsCompletedTotal = s.missionsCompletedTotal;
+      if (saveAfterRestore && typeof saveData === 'function') saveData();
+    } catch(e) {}
+  }
+  function _startTestAreaRun(){
+    if (!_canUseTestArea()) return;
+    if (!_testProgressSnapshot) _testProgressSnapshot = _captureTestProgressSnapshot();
+    try {
+      if (typeof trackEvent === 'function') {
+        trackEvent('test_area_start', {
+          source: _IS_PROD ? 'unlocked_prod' : 'local_dev',
+          best: (typeof best === 'number') ? best : 0
+        });
+      }
+    } catch(e) {}
+    if (typeof startTestRun === 'function') startTestRun('test_area');
+    else if (typeof startRun === 'function') startRun(false, 'test_area', { testMode: true });
+  }
+  function _getTestAreaRect(ctaY, tapSize){
+    const w = Math.min(W * 0.74, 292);
+    const h = 44;
+    const x = (W - w) / 2;
+    const y = Math.min(H - h - 18, ctaY + tapSize + 34);
+    return { x, y, w, h };
+  }
+
   // Modo daltonismo: adiciona marcadores de forma sobre cada no
   // pra que jogadores com deficiencia de cor distingam os tiers.
   // Verde=sem marca (default), Azul=triangulo, Vermelho=X, Dourado=estrela.
@@ -415,17 +567,76 @@
   }
 
   // ---------- ONBOARDING ----------
-  // Primeiras 3 partidas tem dificuldade gradual e a 1a tem hint
-  // visual de "TOQUE PARA SOLTAR" pra novos jogadores nao se assustarem.
-  // Sem isso, ~80% dos novos jogadores desinstalam apos morrer
-  // em 2 segundos no phase 6 brutal.
+  // Primeiras partidas tem dificuldade gradual e a 1a tem hint visual
+  // de "TOQUE PARA SOLTAR". A rampa agora dura 8 runs: tempo suficiente
+  // pra criar memoria muscular antes do caos completo.
+  const ONBOARDING_RUNS = 8;
+  const TRAINING_RECORD_EXEMPT_RUNS = 3;
+  const ONBOARDING_SPEED_MULT = [0.82, 0.92, 1.02, 1.12, 1.22, 1.32, 1.40, 1.46];
+  const EARLY_RUN_ASSIST_SPEED_MULT = [0.84, 0.92];
+  const EARLY_RUN_ASSIST_RADIUS_BONUS = [10, 5];
+  const EARLY_GOLD_SUPPRESS_CAPTURES = 1;
+  const EARLY_HARD_SUPPRESS_CAPTURES = 1;
+  function _runIndex(){
+    const tg = (typeof totalGames === 'number') ? Math.floor(totalGames) : 0;
+    return Math.max(0, tg);
+  }
   function _isOnboarding(){
     if (typeof zenMode !== 'undefined' && zenMode) return false;
     if (typeof testMode !== 'undefined' && testMode) return false;
-    return (typeof totalGames === 'number') && totalGames < 3;
+    return _runIndex() < ONBOARDING_RUNS;
+  }
+  function _isTrainingRecordExemptRun(){
+    if (typeof zenMode !== 'undefined' && zenMode) return false;
+    if (typeof testMode !== 'undefined' && testMode) return false;
+    return _runIndex() < TRAINING_RECORD_EXEMPT_RUNS;
+  }
+  function _onboardingPhase(){
+    const tg = _runIndex();
+    if (tg <= 0) return 1;
+    if (tg === 1) return 2;
+    if (tg === 2) return 3;
+    if (tg === 3) return 4;
+    if (tg <= 5) return 5;
+    return 6;
+  }
+  function _earlyRunAssistIndex(){
+    if (typeof zenMode !== 'undefined' && zenMode) return -1;
+    if (typeof testMode !== 'undefined' && testMode) return -1;
+    if (_isOnboarding()) return -1;
+    const captures = Math.max(0, Math.floor(Number(_captureCount) || 0));
+    return captures < EARLY_RUN_ASSIST_SPEED_MULT.length ? captures : -1;
+  }
+  function _earlyRunAssistMeta(){
+    const idx = _earlyRunAssistIndex();
+    if (idx < 0) return { active: false };
+    return {
+      active: true,
+      capture_index: idx,
+      speed_mult: EARLY_RUN_ASSIST_SPEED_MULT[idx],
+      radius_bonus: EARLY_RUN_ASSIST_RADIUS_BONUS[idx] || 0
+    };
+  }
+  function _shouldSuppressEarlyGold(){
+    if (typeof zenMode !== 'undefined' && zenMode) return false;
+    if (typeof testMode !== 'undefined' && testMode) return false;
+    return _captureCount < EARLY_GOLD_SUPPRESS_CAPTURES;
+  }
+  function _shouldSuppressEarlyHard(){
+    if (typeof zenMode !== 'undefined' && zenMode) return false;
+    if (typeof testMode !== 'undefined' && testMode) return false;
+    return _captureCount < EARLY_HARD_SUPPRESS_CAPTURES;
+  }
+  function _shouldUseSafeFirstJump(){
+    return _shouldSuppressEarlyGold() || _shouldSuppressEarlyHard();
   }
   let _tapHintVisible = false;
   let _hasReleasedThisRun = false;
+  let _lastRunWasTrainingRecordExempt = false;
+  let _trainingRecordSuppressed = false;
+  let _runStartedInOnboarding = false;
+  let _earlyGoldSuppressedThisRun = false;
+  let _earlyHardSuppressedThisRun = false;
 
   // ---------- ANTI-CHEAT ----------
   // 3 camadas: (1) assinatura no save vs localStorage editor,
@@ -570,354 +781,57 @@
     return null;
   }
 
-  // Frases por contexto da morte. O picker escolhe o bucket de
-  // maior prioridade que se aplica e sorteia uma frase dele.
-  const _PHRASE_BUCKETS = {
-    // Bateu recorde - euforia
+  // Fallback enxuto caso o modulo i18n nao carregue. A lista grande acima e
+  // mantida apenas por compatibilidade de fonte e nao entra mais na rotacao.
+  const _CURATED_FALLBACK_PHRASES = {
     new_record: [
-      'ISSO! VAI!',
-      'NOVO RECORDE!',
-      'Você é fera.',
-      'Tá voando hoje!',
-      'Próximo objetivo: dobrar isso.',
-      'Se gabar é justo agora.',
-      'Hoje o dedo tá afiado.',
-      'Tu não para mais não, né?',
-      'Print disso.',
-      'GG.',
+      'Seu melhor voo até agora.','Esse recorde é seu.','Ritmo perfeito.',
+      'Você elevou a marca.','Guarde esse número.','Uma órbita mais alto.'
     ],
-    // Quase bateu o recorde (faltou 1-3 pts)
     near_record: [
-      'POR ESSA?!',
-      'FALTOU NADA!',
-      'AAAAAAA!',
-      'Tava ali.',
-      'Por 1 ponto??',
-      'Cruel.',
-      'Quase tive um treco.',
-      'Tava do lado.',
-      'Você sabe que ia.',
-      'De novo. Vai sair.',
+      'O recorde estava ali.','Faltou quase nada.','Mais uma e sai.',
+      'Foi por um detalhe.','Você já consegue alcançar.','Respira. Está perto.'
     ],
-    // Bola raspou num nó (near-miss visual disparou)
+    beginner: [
+      'Observe a direção da bola.','Encontre o momento certo.',
+      'Cada tentativa ensina o ritmo.','Mire no centro do próximo nó.',
+      'Use o rastro para ler a direção.','Você está aprendendo o giro.'
+    ],
     near_miss: [
-      'Era pra ter pegado.',
-      'O dedo veio errado.',
-      'Tava na mão.',
-      'O dourado tava lá.',
-      'Calculou errado.',
-      'Encostou e voltou.',
-      'Pertinho!',
-      'Soltou cedo demais.',
-      'Atrasou um frame.',
-      'Tava na unha.',
+      'Passou raspando.','Faltou um toque.','Quase entrou na órbita.',
+      'O centro estava muito perto.','Mais precisão no próximo.','Essa foi por um fio.'
     ],
-    // Morreu no primeiro nó (score 0)
-    first_death: [
-      'Caiu no primeiro? Sério?',
-      'Já?',
-      'Nem chegou a esquentar.',
-      'Calma, respira.',
-      'Foi só pra testar, né?',
-      'Vai com mais calma.',
-      'Não esquenta, todo mundo erra o 1º.',
-      'Esse foi de presente.',
+    too_early: [
+      'Segure só mais um instante.','Espere alinhar um pouco mais.',
+      'A rota ainda não estava alinhada.','Dê mais uma volta na órbita.',
+      'Espere a bola apontar para o nó.','Quase. Só precisava esperar.'
     ],
-    // Morte muito cedo (score 1-4)
-    early_death: [
-      'Mole demais.',
-      'Concentra.',
-      'Acordou agora?',
-      'Esquentando ainda.',
-      'Foco!',
-      'Cê tá lento hoje.',
-      'De novo, vai.',
-      'Sem distração.',
+    too_late: [
+      'Solte um instante antes.','A janela já tinha passado.',
+      'Antecipe um pouco o toque.','Você segurou além do ponto.',
+      'O alinhamento passou.','Na próxima, solte mais cedo.'
     ],
-    // Combo alto perdido (maxCombo >= 5)
-    combo_end: [
-      'Tava no flow!',
-      'Combo perdido. DOEU.',
-      'Sequência quebrada.',
-      'Mantém o ritmo!',
-      'Tava lindo. E aí?',
-      'Bora retomar.',
-      'O combo cobra.',
+    wrong_target: [
+      'Mire no nó mais alinhado.','A bola apontava para outro nó.',
+      'Escolha a rota antes de soltar.','O nó certo estava do outro lado.',
+      'Leia o leque de nós primeiro.','Procure a linha mais limpa.'
     ],
-    // Run longa (>= 30s)
-    long_run: [
-      'Boa run.',
-      'Fez bonito.',
-      'Resistente.',
-      'Aguentou pancada.',
-      'Tá evoluindo.',
-      'Próxima vai mais longe.',
+    no_route: [
+      'Espere surgir uma rota limpa.','Não havia nó bem alinhado.',
+      'Segure a órbita e observe.','A rota fechou. Espere outra.',
+      'Nem todo giro pede um toque.','Espere o próximo alinhamento.'
     ],
-    // Run muito curta (< 5s)
-    short_run: [
-      'Apressado.',
-      'Calma!',
-      'Tem que pensar.',
-      'Não é speedrun.',
-      'Respira fundo.',
-      'Devagar e sempre.',
+    missed_timing: [
+      'Ajuste o momento do toque.','Olhe a direção da bola.',
+      'O ritmo está quase encaixando.','Solte quando a rota alinhar.',
+      'Calma e precisão.','Leia o giro antes de soltar.'
     ],
-    // Genericas (fallback)
     generic: [
-      'Mais uma...',
-      'Você consegue.',
-      'Vai dessa vez.',
-      'Não chora.',
-      'Reflexo lento.',
-      'Tá perto.',
-      'Respira e tenta.',
-      'De novo.',
-      'Bora.',
-      'Tá ruim, hein?',
-      'Sem desculpa.',
-      'Tu sabe.',
-      'Tem mais nessa.',
-      'Nem foi tão ruim.',
-      'A culpa é sua.',
-      'Não foi o jogo.',
-      'Tenta o ouro dessa vez.',
-      'Sem chorar.',
-      'Quero ver.',
-      'Mais foco.',
-    ],
+      'Respira e tenta de novo.','A próxima pode encaixar.','Mais uma órbita.',
+      'Ajuste pequeno, diferença grande.','Observe. Alinhe. Solte.',
+      'Você está pegando o ritmo.','Sem pressa.','De novo, com precisão.'
+    ]
   };
-
-  // Pool extra de 500 frases motivacionais/contemplativas. Vai pro
-  // bucket "generic" apos dedup contra todos os outros buckets.
-  const _EXTRA_PHRASES = [
-    'Não é speedrun.','Vai no seu tempo.','O jogo continua.','Mais uma tentativa.',
-    'Respira e tenta de novo.','Você consegue passar.','Calma no controle.',
-    'Foco na próxima jogada.','Não desiste agora.','Aprende o padrão.',
-    'Volta mais esperto.','Cada erro ensina.','Você está evoluindo.','Segue o mapa.',
-    'Olha o timing.','Vai com calma.','Confia no progresso.','Não pula etapa.',
-    'Treina mais um pouco.','Quase lá.','Você chegou longe.','Continua firme.',
-    'Um passo por vez.','Hoje passa.','Não precisa correr.','Joga com cabeça.',
-    'Fica atento.','O detalhe decide.','Você já melhorou.','A próxima é sua.',
-    'Sem pressa.','Sem pânico.','Só joga.','Recomeçar também conta.',
-    'Você aprendeu algo.','Agora ajusta.','Tenta diferente.','Olha melhor.',
-    'Mira melhor.','Espera o momento.','Vai no ritmo.','Não força errado.',
-    'Escolhe bem.','Usa a estratégia.','Você tem chance.','A fase é treinável.',
-    'O chefe tem padrão.','Leia o movimento.','Não entra no desespero.',
-    'Você está perto.','Falta pouco.','Mais controle.','Menos impulso.',
-    'Joga inteligente.','Avança com calma.','Boa tentativa.','Agora melhora.',
-    'Você pode virar.','Não acabou.','Continua jogando.','Experiência também vale.',
-    'Cada rodada conta.','Você pegou XP.','Subiu um pouco.','Fica no foco.',
-    'Olha o próximo passo.','Não olha só o erro.','Aprende e segue.','Ajusta a rota.',
-    'Volta para a missão.','Você sabe o que fazer.','Não complica.',
-    'Faz o simples bem feito.','O básico vence.','Capricha no timing.',
-    'Capricha na mira.','Capricha na defesa.','Joga leve.','Mas joga sério.',
-    'Você está melhorando.','A fase não é impossível.','Só precisa prática.',
-    'Prática muda tudo.','Mais uma run.','Mais uma chance.','Mais um avanço.',
-    'Continua no controle.','Não entrega fácil.','Vai até o fim.','Termina a fase.',
-    'Pega o ritmo.','Não se afoba.','Você consegue adaptar.','Troca a estratégia.',
-    'Tenta outro caminho.','Usa o que aprendeu.','Volta mais preparado.',
-    'O mapa ajuda quem observa.','Observa antes de agir.','Ataca na hora certa.',
-    'Defende na hora certa.','Pula na hora certa.','Espera abrir espaço.',
-    'Você tem tempo.','Não precisa provar nada.','Só precisa passar.',
-    'A vitória vem com calma.','Foco no objetivo.','Foco no checkpoint.',
-    'Foco na missão.','Você desbloqueia tentando.','Nada melhora parado.',
-    'Movimento gera progresso.','Aprender também é jogar.','Perder faz parte.',
-    'Parar não precisa fazer.','Vai de novo.','Continua aprendendo.',
-    'Você está no caminho.','Não troca foco por pressa.','Pressa erra fácil.',
-    'Calma acerta mais.','Joga no tempo certo.','O controle é seu.',
-    'A decisão é sua.','A próxima jogada importa.','Não desperdiça a chance.',
-    'Você consegue acertar.','Você consegue defender.','Você consegue escapar.',
-    'Você consegue vencer.','Não ignora o padrão.','O inimigo repete.',
-    'Você aprende.','Você supera.','Fase difícil também passa.',
-    'Boss difícil também cai.','Checkpoint existe por um motivo.','Use a tentativa.',
-    'Use a falha.','Use o treino.','Não foi inútil.','Foi aprendizado.',
-    'Agora vai melhor.','Joga com atenção.','Cuida da energia.','Cuida do tempo.',
-    'Cuida do movimento.','Não gasta tudo cedo.','Guarda recurso.',
-    'Escolhe a hora.','Faz valer.','Não corre sem olhar.','Não ataca sem pensar.',
-    'Não pula sem medir.','Timing é tudo.','Leitura é tudo.','Controle é tudo.',
-    'Você não precisa ser perfeito.','Precisa continuar.','Continua até encaixar.',
-    'Quando encaixa, passa.','O começo é estranho.','Depois vira hábito.',
-    'Depois vira domínio.','Treina até ficar natural.','Você aprende rápido.',
-    'Mas precisa tentar.','Não fica no menu.','Entra na fase.',
-    'A fase ensina jogando.','Você só melhora jogando.','Mais jogo, mais leitura.',
-    'Mais leitura, menos erro.','Menos erro, mais vitória.','Simples assim.',
-    'Não inventa desculpa.','Inventa estratégia.','Se travou, muda.',
-    'Se errou, ajusta.','Se caiu, volta.','Se passou, continua.','Próxima fase.',
-    'Próximo desafio.','Próxima melhoria.','Você está construindo habilidade.',
-    'Habilidade vem de repetição.','Repetição vira confiança.',
-    'Confiança vem depois.','Primeiro vem treino.','Hoje é treino.',
-    'Amanhã é domínio.','Não pula o processo.','O processo salva.',
-    'Segue treinando.','Segue tentando.','Segue melhorando.',
-    'Não precisa ser bonito.','Precisa funcionar.','Funciona melhor com calma.',
-    'Calma não é lentidão.','Calma é precisão.','Precisão vence correria.',
-    'Você sabe disso.','Então joga melhor.',
-    'Não é speedrun, sem pressa.','Não é speedrun, com foco.',
-    'Não é speedrun, com calma.','Não é speedrun, com controle.',
-    'Não é speedrun, com atenção.','Não é speedrun, com estratégia.',
-    'Não é speedrun, no timing certo.','Não é speedrun, sem pânico.',
-    'Não é speedrun, sem desistir.','Não é speedrun, até o checkpoint.',
-    'Não é speedrun, até passar.','Não é speedrun, mais uma vez.',
-    'Não é speedrun, do jeito certo.','Não é speedrun, observando melhor.',
-    'Não é speedrun, corrigindo o erro.','Não é speedrun, usando o que aprendeu.',
-    'Não é speedrun, sem forçar.','Não é speedrun, com paciência.',
-    'Não é speedrun, com leitura.','Não é speedrun, no ritmo da fase.',
-    'Vai no seu tempo, sem pressa.','Vai no seu tempo, com foco.',
-    'Vai no seu tempo, com calma.','Vai no seu tempo, com controle.',
-    'Vai no seu tempo, com atenção.','Vai no seu tempo, com estratégia.',
-    'Vai no seu tempo, no timing certo.','Vai no seu tempo, sem pânico.',
-    'Vai no seu tempo, sem desistir.','Vai no seu tempo, até o checkpoint.',
-    'Vai no seu tempo, até passar.','Vai no seu tempo, mais uma vez.',
-    'Vai no seu tempo, do jeito certo.','Vai no seu tempo, observando melhor.',
-    'Vai no seu tempo, corrigindo o erro.','Vai no seu tempo, usando o que aprendeu.',
-    'Vai no seu tempo, sem forçar.','Vai no seu tempo, com paciência.',
-    'Vai no seu tempo, com leitura.','Vai no seu tempo, no ritmo da fase.',
-    'O jogo continua, sem pressa.','O jogo continua, com foco.',
-    'O jogo continua, com calma.','O jogo continua, com controle.',
-    'O jogo continua, com atenção.','O jogo continua, com estratégia.',
-    'O jogo continua, no timing certo.','O jogo continua, sem pânico.',
-    'O jogo continua, sem desistir.','O jogo continua, até o checkpoint.',
-    'O jogo continua, até passar.','O jogo continua, mais uma vez.',
-    'O jogo continua, do jeito certo.','O jogo continua, observando melhor.',
-    'O jogo continua, corrigindo o erro.','O jogo continua, usando o que aprendeu.',
-    'O jogo continua, sem forçar.','O jogo continua, com paciência.',
-    'O jogo continua, com leitura.','O jogo continua, no ritmo da fase.',
-    'Mais uma tentativa, sem pressa.','Mais uma tentativa, com foco.',
-    'Mais uma tentativa, com calma.','Mais uma tentativa, com controle.',
-    'Mais uma tentativa, com atenção.','Mais uma tentativa, com estratégia.',
-    'Mais uma tentativa, no timing certo.','Mais uma tentativa, sem pânico.',
-    'Mais uma tentativa, sem desistir.','Mais uma tentativa, até o checkpoint.',
-    'Mais uma tentativa, até passar.','Mais uma tentativa, mais uma vez.',
-    'Mais uma tentativa, do jeito certo.','Mais uma tentativa, observando melhor.',
-    'Mais uma tentativa, corrigindo o erro.','Mais uma tentativa, usando o que aprendeu.',
-    'Mais uma tentativa, sem forçar.','Mais uma tentativa, com paciência.',
-    'Mais uma tentativa, com leitura.','Mais uma tentativa, no ritmo da fase.',
-    'Respira e tenta de novo, sem pressa.','Respira e tenta de novo, com foco.',
-    'Respira e tenta de novo, com calma.','Respira e tenta de novo, com controle.',
-    'Respira e tenta de novo, com atenção.','Respira e tenta de novo, com estratégia.',
-    'Respira e tenta de novo, no timing certo.','Respira e tenta de novo, sem pânico.',
-    'Respira e tenta de novo, sem desistir.','Respira e tenta de novo, até o checkpoint.',
-    'Respira e tenta de novo, até passar.','Respira e tenta de novo, mais uma vez.',
-    'Respira e tenta de novo, do jeito certo.','Respira e tenta de novo, observando melhor.',
-    'Respira e tenta de novo, corrigindo o erro.','Respira e tenta de novo, usando o que aprendeu.',
-    'Respira e tenta de novo, sem forçar.','Respira e tenta de novo, com paciência.',
-    'Respira e tenta de novo, com leitura.','Respira e tenta de novo, no ritmo da fase.',
-    'Você consegue passar, sem pressa.','Você consegue passar, com foco.',
-    'Você consegue passar, com calma.','Você consegue passar, com controle.',
-    'Você consegue passar, com atenção.','Você consegue passar, com estratégia.',
-    'Você consegue passar, no timing certo.','Você consegue passar, sem pânico.',
-    'Você consegue passar, sem desistir.','Você consegue passar, até o checkpoint.',
-    'Você consegue passar, até passar.','Você consegue passar, mais uma vez.',
-    'Você consegue passar, do jeito certo.','Você consegue passar, observando melhor.',
-    'Você consegue passar, corrigindo o erro.','Você consegue passar, usando o que aprendeu.',
-    'Você consegue passar, sem forçar.','Você consegue passar, com paciência.',
-    'Você consegue passar, com leitura.','Você consegue passar, no ritmo da fase.',
-    'Calma no controle, sem pressa.','Calma no controle, com foco.',
-    'Calma no controle, com calma.','Calma no controle, com controle.',
-    'Calma no controle, com atenção.','Calma no controle, com estratégia.',
-    'Calma no controle, no timing certo.','Calma no controle, sem pânico.',
-    'Calma no controle, sem desistir.','Calma no controle, até o checkpoint.',
-    'Calma no controle, até passar.','Calma no controle, mais uma vez.',
-    'Calma no controle, do jeito certo.','Calma no controle, observando melhor.',
-    'Calma no controle, corrigindo o erro.','Calma no controle, usando o que aprendeu.',
-    'Calma no controle, sem forçar.','Calma no controle, com paciência.',
-    'Calma no controle, com leitura.','Calma no controle, no ritmo da fase.',
-    'Foco na próxima jogada, sem pressa.','Foco na próxima jogada, com foco.',
-    'Foco na próxima jogada, com calma.','Foco na próxima jogada, com controle.',
-    'Foco na próxima jogada, com atenção.','Foco na próxima jogada, com estratégia.',
-    'Foco na próxima jogada, no timing certo.','Foco na próxima jogada, sem pânico.',
-    'Foco na próxima jogada, sem desistir.','Foco na próxima jogada, até o checkpoint.',
-    'Foco na próxima jogada, até passar.','Foco na próxima jogada, mais uma vez.',
-    'Foco na próxima jogada, do jeito certo.','Foco na próxima jogada, observando melhor.',
-    'Foco na próxima jogada, corrigindo o erro.','Foco na próxima jogada, usando o que aprendeu.',
-    'Foco na próxima jogada, sem forçar.','Foco na próxima jogada, com paciência.',
-    'Foco na próxima jogada, com leitura.','Foco na próxima jogada, no ritmo da fase.',
-    'Não desiste agora, sem pressa.','Não desiste agora, com foco.',
-    'Não desiste agora, com calma.','Não desiste agora, com controle.',
-    'Não desiste agora, com atenção.','Não desiste agora, com estratégia.',
-    'Não desiste agora, no timing certo.','Não desiste agora, sem pânico.',
-    'Não desiste agora, sem desistir.','Não desiste agora, até o checkpoint.',
-    'Não desiste agora, até passar.','Não desiste agora, mais uma vez.',
-    'Não desiste agora, do jeito certo.','Não desiste agora, observando melhor.',
-    'Não desiste agora, corrigindo o erro.','Não desiste agora, usando o que aprendeu.',
-    'Não desiste agora, sem forçar.','Não desiste agora, com paciência.',
-    'Não desiste agora, com leitura.','Não desiste agora, no ritmo da fase.',
-    'Aprende o padrão, sem pressa.','Aprende o padrão, com foco.',
-    'Aprende o padrão, com calma.','Aprende o padrão, com controle.',
-    'Aprende o padrão, com atenção.','Aprende o padrão, com estratégia.',
-    'Aprende o padrão, no timing certo.','Aprende o padrão, sem pânico.',
-    'Aprende o padrão, sem desistir.','Aprende o padrão, até o checkpoint.',
-    'Aprende o padrão, até passar.','Aprende o padrão, mais uma vez.',
-    'Aprende o padrão, do jeito certo.','Aprende o padrão, observando melhor.',
-    'Aprende o padrão, corrigindo o erro.','Aprende o padrão, usando o que aprendeu.',
-    'Aprende o padrão, sem forçar.','Aprende o padrão, com paciência.',
-    'Aprende o padrão, com leitura.','Aprende o padrão, no ritmo da fase.',
-    'Volta mais esperto, sem pressa.','Volta mais esperto, com foco.',
-    'Volta mais esperto, com calma.','Volta mais esperto, com controle.',
-    'Volta mais esperto, com atenção.','Volta mais esperto, com estratégia.',
-    'Volta mais esperto, no timing certo.','Volta mais esperto, sem pânico.',
-    'Volta mais esperto, sem desistir.','Volta mais esperto, até o checkpoint.',
-    'Volta mais esperto, até passar.','Volta mais esperto, mais uma vez.',
-    'Volta mais esperto, do jeito certo.','Volta mais esperto, observando melhor.',
-    'Volta mais esperto, corrigindo o erro.','Volta mais esperto, usando o que aprendeu.',
-    'Volta mais esperto, sem forçar.','Volta mais esperto, com paciência.',
-    'Volta mais esperto, com leitura.','Volta mais esperto, no ritmo da fase.',
-    'Cada erro ensina, sem pressa.','Cada erro ensina, com foco.',
-    'Cada erro ensina, com calma.','Cada erro ensina, com controle.',
-    'Cada erro ensina, com atenção.','Cada erro ensina, com estratégia.',
-    'Cada erro ensina, no timing certo.','Cada erro ensina, sem pânico.',
-    'Cada erro ensina, sem desistir.','Cada erro ensina, até o checkpoint.',
-    'Cada erro ensina, até passar.','Cada erro ensina, mais uma vez.',
-    'Cada erro ensina, do jeito certo.','Cada erro ensina, observando melhor.',
-    'Cada erro ensina, corrigindo o erro.','Cada erro ensina, usando o que aprendeu.',
-    'Cada erro ensina, sem forçar.','Cada erro ensina, com paciência.',
-    'Cada erro ensina, com leitura.','Cada erro ensina, no ritmo da fase.',
-    'Você está evoluindo, sem pressa.','Você está evoluindo, com foco.',
-    'Você está evoluindo, com calma.','Você está evoluindo, com controle.',
-    'Você está evoluindo, com atenção.','Você está evoluindo, com estratégia.',
-    'Você está evoluindo, no timing certo.','Você está evoluindo, sem pânico.',
-    'Você está evoluindo, sem desistir.','Você está evoluindo, até o checkpoint.',
-    'Você está evoluindo, até passar.','Você está evoluindo, mais uma vez.',
-    'Você está evoluindo, do jeito certo.','Você está evoluindo, observando melhor.',
-    'Você está evoluindo, corrigindo o erro.','Você está evoluindo, usando o que aprendeu.',
-    'Você está evoluindo, sem forçar.','Você está evoluindo, com paciência.',
-    'Você está evoluindo, com leitura.','Você está evoluindo, no ritmo da fase.',
-    'Segue o mapa, sem pressa.','Segue o mapa, com foco.',
-    'Segue o mapa, com calma.','Segue o mapa, com controle.',
-    'Segue o mapa, com atenção.','Segue o mapa, com estratégia.',
-    'Segue o mapa, no timing certo.','Segue o mapa, sem pânico.',
-    'Segue o mapa, sem desistir.','Segue o mapa, até o checkpoint.',
-    'Segue o mapa, até passar.','Segue o mapa, mais uma vez.',
-    'Segue o mapa, do jeito certo.','Segue o mapa, observando melhor.',
-    'Segue o mapa, corrigindo o erro.','Segue o mapa, usando o que aprendeu.',
-    'Segue o mapa, sem forçar.','Segue o mapa, com paciência.',
-    'Segue o mapa, com leitura.','Segue o mapa, no ritmo da fase.',
-    'Olha o timing, sem pressa.','Olha o timing, com foco.',
-    'Olha o timing, com calma.','Olha o timing, com controle.',
-    'Olha o timing, com atenção.','Olha o timing, com estratégia.',
-    'Olha o timing, no timing certo.','Olha o timing, sem pânico.',
-    'Olha o timing, sem desistir.','Olha o timing, até o checkpoint.',
-    'Olha o timing, até passar.','Olha o timing, mais uma vez.',
-    'Olha o timing, do jeito certo.','Olha o timing, observando melhor.',
-    'Olha o timing, corrigindo o erro.'
-  ];
-
-  // Dedup runtime: junta no generic apenas o que ainda nao existe
-  // em NENHUM bucket (inclui o proprio generic).
-  (function _mergePhrases(){
-    const seen = new Set();
-    for (const k in _PHRASE_BUCKETS) {
-      for (const p of _PHRASE_BUCKETS[k]) seen.add(p);
-    }
-    let added = 0;
-    for (const p of _EXTRA_PHRASES) {
-      if (!seen.has(p)) {
-        _PHRASE_BUCKETS.generic.push(p);
-        seen.add(p);
-        added++;
-      }
-    }
-    // console.log('[orbita] frases extras adicionadas:', added);
-  })();
 
   function _pickContextualPhrase(){
     const ctx = {
@@ -925,6 +839,8 @@
       best: (typeof best === 'number') ? best : 0,
       newRec: (typeof newRec !== 'undefined' && !!newRec),
       nearMiss: !!_nearMissData,
+      deathReason: _deathReason,
+      beginner: _runStartedInOnboarding,
       duration: _runDurationS || 0,
       combo: _runMaxCombo || 0,
     };
@@ -933,43 +849,249 @@
       const p = window.OrbitaI18n.pickContextualPhrase(ctx);
       if (p) return p;
     }
-    // Fallback: usa o _PHRASE_BUCKETS local em PT
+    // Fallback: usa a colecao curada local em PT.
     const sc = ctx.score, bs = ctx.best, gap = bs - sc;
     let bucket = 'generic';
     if (ctx.newRec)                               bucket = 'new_record';
     else if (bs > 0 && gap >= 1 && gap <= 3)      bucket = 'near_record';
+    else if (ctx.beginner)                        bucket = 'beginner';
+    else if (_CURATED_FALLBACK_PHRASES[ctx.deathReason]) bucket = ctx.deathReason;
     else if (ctx.nearMiss)                        bucket = 'near_miss';
-    else if (sc === 0)                            bucket = 'first_death';
-    else if (sc <= 4)                             bucket = 'early_death';
-    else if (ctx.combo >= 5)                      bucket = 'combo_end';
-    else if (ctx.duration >= 30)                  bucket = 'long_run';
-    else if (ctx.duration > 0 && ctx.duration < 5) bucket = 'short_run';
-    const list = _PHRASE_BUCKETS[bucket] || _PHRASE_BUCKETS.generic;
+    const list = _CURATED_FALLBACK_PHRASES[bucket] || _CURATED_FALLBACK_PHRASES.generic;
     return list[Math.floor(Math.random() * list.length)];
   }
 
-  // ---------- 1. DIFICULDADE: fase 6 brutal apos 3 partidas ----------
-  // Onboarding: rampa gradual nas primeiras 3 partidas pra reter
-  // novos jogadores. Da partida 4 em diante, phase 6 puro.
+  function _roundTelemetryNumber(value, digits){
+    if (value === null || value === undefined) return null;
+    const n = Number(value);
+    if (!Number.isFinite(n)) return null;
+    const p = Math.pow(10, digits || 0);
+    return Math.round(n * p) / p;
+  }
+
+  function _angleDelta(a, b){
+    let d = a - b;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    return d;
+  }
+
+  function _deathReasonLabelKey(reason){
+    switch (reason) {
+      case 'near_miss': return 'death_reason_near_miss';
+      case 'too_early': return 'death_reason_too_early';
+      case 'too_late': return 'death_reason_too_late';
+      case 'wrong_target': return 'death_reason_wrong_target';
+      case 'no_route': return 'death_reason_no_route';
+      default: return 'death_reason_missed_timing';
+    }
+  }
+
+  function _deathReasonColor(reason){
+    switch (reason) {
+      case 'near_miss': return '#ff5577';
+      case 'too_early': return '#70a1ff';
+      case 'too_late': return '#ffd32a';
+      case 'wrong_target': return '#ff80ff';
+      case 'no_route': return '#a4b0be';
+      default: return '#7bed9f';
+    }
+  }
+
+  function _captureReleaseSnapshot(){
+    try {
+      if (typeof ball === 'undefined' || !ball || !ball.orbiting) return null;
+      if (!Array.isArray(nodes) || !nodes.length) return null;
+
+      const cn = (typeof getSafeCurrentNode === 'function')
+        ? getSafeCurrentNode()
+        : (Number.isInteger(ball.currentNode) ? nodes[ball.currentNode] : null);
+      if (!cn) return null;
+
+      const dir = ball.orbitDir === -1 ? -1 : 1;
+      const tangentAngle = ball.angle + dir * Math.PI / 2;
+      let best = null;
+      let openTargets = 0;
+
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i];
+        if (!n || n.captured || n.visible === false) continue;
+        openTargets++;
+        const targetDistance = Math.hypot(n.x - ball.x, n.y - ball.y);
+        if (targetDistance < 1) continue;
+        const targetAngle = Math.atan2(n.y - ball.y, n.x - ball.x);
+        const timingError = _angleDelta(tangentAngle, targetAngle) * dir;
+        const absTiming = Math.abs(timingError);
+        // Primeiro minimiza erro angular; distancia entra so como desempate.
+        const scoreValue = absTiming + targetDistance * 0.00035;
+        if (!best || scoreValue < best.scoreValue) {
+          best = {
+            index: i,
+            tier: n.tier || 'unknown',
+            pts: n.pts || 0,
+            captureR: n.captureR || 50,
+            targetDistance: targetDistance,
+            targetAngle: targetAngle,
+            timingError: timingError,
+            scoreValue: scoreValue
+          };
+        }
+      }
+
+      if (!best) {
+        return {
+          source: 'release_v2',
+          release_index: _releaseCount + 1,
+          early_run_assist: _earlyRunAssistMeta(),
+          early_gold_suppressed: _earlyGoldSuppressedThisRun,
+          early_hard_suppressed: _earlyHardSuppressedThisRun,
+          open_targets: openTargets,
+          score_at_release: (typeof score === 'number') ? score : 0,
+          captures_at_release: _captureCount,
+          reason: 'no_route'
+        };
+      }
+
+      const timingDeg = best.timingError * 180 / Math.PI;
+      let reason = 'missed_timing';
+      if (Math.abs(timingDeg) >= RELEASE_TIMING_THRESHOLD_DEG) {
+        reason = best.timingError < 0 ? 'too_early' : 'too_late';
+      } else if (openTargets > 1) {
+        reason = 'wrong_target';
+      }
+
+      return {
+        source: 'release_v2',
+        release_index: _releaseCount + 1,
+        early_run_assist: _earlyRunAssistMeta(),
+        early_gold_suppressed: _earlyGoldSuppressedThisRun,
+        early_hard_suppressed: _earlyHardSuppressedThisRun,
+        open_targets: openTargets,
+        score_at_release: (typeof score === 'number') ? score : 0,
+        captures_at_release: _captureCount,
+        current_tier: cn.tier || 'start',
+        current_node_x: _roundTelemetryNumber(cn.x, 1),
+        current_node_y: _roundTelemetryNumber(cn.y, 1),
+        ball_x: _roundTelemetryNumber(ball.x, 1),
+        ball_y: _roundTelemetryNumber(ball.y, 1),
+        target_index: best.index,
+        target_tier: best.tier,
+        target_points: best.pts,
+        target_distance: _roundTelemetryNumber(best.targetDistance, 1),
+        target_capture_radius: _roundTelemetryNumber(best.captureR, 1),
+        release_timing_error_deg: _roundTelemetryNumber(timingDeg, 1),
+        abs_release_timing_error_deg: _roundTelemetryNumber(Math.abs(timingDeg), 1),
+        orbit_dir: dir,
+        release_threshold_deg: RELEASE_TIMING_THRESHOLD_DEG,
+        reason: reason
+      };
+    } catch(e) {
+      return null;
+    }
+  }
+
+  function _classifyFromReleaseSnapshot(snapshot, fallback){
+    const base = fallback && fallback.meta ? fallback.meta : {};
+    if (!snapshot) return fallback || { reason: 'missed_timing', meta: base };
+    const reason = snapshot.reason || 'missed_timing';
+    const meta = Object.assign({}, base, {
+      release_snapshot: snapshot,
+      release_timing_error_deg: snapshot.release_timing_error_deg,
+      abs_release_timing_error_deg: snapshot.abs_release_timing_error_deg,
+      target_tier: snapshot.target_tier,
+      target_distance: snapshot.target_distance,
+      timing_source: snapshot.source || 'release_v2'
+    });
+    return { reason: reason, meta: meta };
+  }
+
+  function _classifyDeathReason(closest, closestD, captureR){
+    const meta = {
+      closest_tier: closest && closest.tier ? closest.tier : null,
+      closest_distance: _roundTelemetryNumber(closestD, 1),
+      capture_radius: _roundTelemetryNumber(captureR, 1),
+      overshoot: _roundTelemetryNumber(Number(closestD) - Number(captureR || 0), 1),
+      releases: _releaseCount,
+      captures: _captureCount
+    };
+
+    if (!closest) {
+      if (_lastReleaseSnapshot) return _classifyFromReleaseSnapshot(_lastReleaseSnapshot, { reason: 'no_route', meta: meta });
+      return { reason: 'no_route', meta: meta };
+    }
+
+    try {
+      const cr = Number(captureR || closest.captureR || 50);
+      const overshoot = Number(closestD) - cr;
+      if (Number.isFinite(overshoot) && overshoot >= 0 && overshoot < cr * NEAR_MISS_MAX_OVERSHOOT) {
+        return { reason: 'near_miss', meta: meta };
+      }
+
+      if (_lastReleaseSnapshot) {
+        return _classifyFromReleaseSnapshot(_lastReleaseSnapshot, { reason: 'missed_timing', meta: meta });
+      }
+
+      if (typeof ball === 'undefined' || !ball) return { reason: 'missed_timing', meta: meta };
+
+      const cn = (typeof getSafeCurrentNode === 'function')
+        ? getSafeCurrentNode()
+        : (Array.isArray(nodes) && Number.isInteger(ball.currentNode) ? nodes[ball.currentNode] : null);
+      if (!cn) return { reason: 'no_route', meta: meta };
+
+      const originToTarget = Math.hypot(closest.x - cn.x, closest.y - cn.y);
+      const originToBall = Math.hypot(ball.x - cn.x, ball.y - cn.y);
+      const targetAngle = Math.atan2(closest.y - cn.y, closest.x - cn.x);
+      const ballAngle = Math.atan2(ball.y - cn.y, ball.x - cn.x);
+      const dir = ball.orbitDir === -1 ? -1 : 1;
+      const timingError = _angleDelta(ballAngle, targetAngle) * dir;
+      const timingDeg = timingError * 180 / Math.PI;
+      const progress = originToTarget > 1 ? originToBall / originToTarget : null;
+
+      meta.origin_to_target = _roundTelemetryNumber(originToTarget, 1);
+      meta.origin_to_ball = _roundTelemetryNumber(originToBall, 1);
+      meta.flight_progress = _roundTelemetryNumber(progress, 2);
+      meta.timing_error_deg = _roundTelemetryNumber(timingDeg, 1);
+      meta.ball_speed = _roundTelemetryNumber(ball.speed, 1);
+
+      const absTimingDeg = Math.abs(timingDeg);
+      if (absTimingDeg >= 8) {
+        return { reason: timingError < 0 ? 'too_early' : 'too_late', meta: meta };
+      }
+      if (progress !== null && progress < 0.82) {
+        return { reason: 'too_early', meta: meta };
+      }
+      if (progress !== null && progress > 1.12) {
+        return { reason: 'too_late', meta: meta };
+      }
+      if (Array.isArray(nodes)) {
+        let openTargets = 0;
+        for (const n of nodes) {
+          if (n && !n.captured && n.visible !== false) openTargets++;
+        }
+        if (openTargets > 1) return { reason: 'wrong_target', meta: meta };
+      }
+    } catch(e) {}
+
+    return _classifyFromReleaseSnapshot(_lastReleaseSnapshot, { reason: 'missed_timing', meta: meta });
+  }
+
+  // ---------- 1. DIFICULDADE: fase 6 brutal apos uma rampa curta ----------
+  // Onboarding: rampa gradual nas primeiras 8 partidas pra reter novos
+  // jogadores. Depois disso, phase 6 puro.
   if (typeof window.getPhase === 'function') {
     window.getPhase = function(){
       if (typeof zenMode !== 'undefined' && zenMode) return 1;
-      // Rampa pras 3 primeiras partidas (totalGames eh incrementado em die())
-      if (typeof totalGames === 'number') {
-        if (totalGames === 0) return 1;  // 1a partida: gentil
-        if (totalGames === 1) return 3;  // 2a: media
-        if (totalGames === 2) return 5;  // 3a: pesada
-      }
-      return 6;  // 4a+: chaos
+      if (_isOnboarding()) return _onboardingPhase();
+      return 6;  // pos-onboarding: chaos
     };
   }
 
   // Aplica multiplicador de velocidade com curva customizada:
-  //  - Score 0-99:   crescimento normal (3.0 + sc*0.05) * 1.5
-  //  - Score 100+:   reduz a taxa de crescimento pra ~30% (gameplay
-  //                  jogavel em scores altos sem virar impossivel)
-  //  - Onboarding (3 primeiras partidas): velocidade reduzida pra
-  //                  o jogador aprender a mecanica
+  //  - Cresce normalmente ate perto do score 54.
+  //  - Depois estabiliza em MAX_ORBIT_SPEED para continuar humanamente
+  //    jogavel em pontuacoes altas.
+  //  - Onboarding (8 primeiras partidas): velocidade reduzida para
+  //    o jogador aprender a mecanica.
   if (typeof registerOrbitaGameplayHook === 'function') {
     registerOrbitaGameplayHook('adjustOrbitSpeed', function(payload){
       if (!payload) return payload;
@@ -981,15 +1103,17 @@
       } else {
         baseValue = 8.0 + (sc - 100) * 0.015;   // 8.0 -> 11.0 em sc=300
       }
-      // Multiplicador reduzido durante onboarding (1a-3a partida)
+      // Multiplicador reduzido durante onboarding.
       let mult = SPEED_MULTIPLIER;
       if (_isOnboarding()) {
-        const tg = (typeof totalGames === 'number') ? totalGames : 0;
-        if (tg === 0)      mult = 0.85;  // 1a: bem lenta, da pra aprender
-        else if (tg === 1) mult = 1.05;  // 2a: media
-        else if (tg === 2) mult = 1.25;  // 3a: quase normal
+        mult = ONBOARDING_SPEED_MULT[Math.min(_runIndex(), ONBOARDING_SPEED_MULT.length - 1)];
+      } else {
+        const earlyAssistIdx = _earlyRunAssistIndex();
+        if (earlyAssistIdx >= 0) {
+          mult *= EARLY_RUN_ASSIST_SPEED_MULT[earlyAssistIdx] || 1;
+        }
       }
-      return { value: baseValue * mult };
+      return { value: Math.min(baseValue * mult, MAX_ORBIT_SPEED) };
     });
   }
 
@@ -1042,6 +1166,284 @@
         mid: lerpColor(cur.mid, next.mid, progress),
         bot: lerpColor(cur.bot, next.bot, progress),
       };
+    };
+  }
+
+  // ---------- ANOMALIAS COSMICAS PROGRESSIVAS ----------
+  // Depois que a velocidade atinge o teto humano, a sensacao de progresso
+  // passa a vir do ambiente. Todos os elementos abaixo sao decorativos:
+  // nao possuem hitbox, nao alteram a fisica e nao podem causar morte.
+  const COSMIC_METEOR_SCORE = 50;
+  const COSMIC_COMET_SCORE = 75;
+  const COSMIC_BLACK_HOLE_SCORE = 100;
+  const _cosmicMeteorSeeds = (function(){
+    const seeds = [];
+    for (let i = 0; i < 9; i++) {
+      seeds.push({
+        x: Math.random(),
+        y: Math.random(),
+        speed: 54 + Math.random() * 54,
+        slope: 0.42 + Math.random() * 0.22,
+        length: 18 + Math.random() * 28,
+        size: 0.75 + Math.random() * 0.9,
+        alpha: 0.28 + Math.random() * 0.34,
+        warm: Math.random() < 0.24
+      });
+    }
+    return seeds;
+  })();
+
+  function _cosmicFade(sc, threshold, range){
+    return Math.max(0, Math.min(1, (sc - threshold) / range));
+  }
+
+  let _cosmicBlackHoleAnchor = null;
+  let _cosmicBlackHoleVisibility = 1;
+
+  function _cosmicRoutePoints(){
+    const points = [];
+    try {
+      if (typeof cam === 'undefined' || !cam) return points;
+      const z = Number(cam.zoom) || 1;
+      const toScreen = function(wx, wy){
+        const rawX = wx - cam.x;
+        const rawY = wy - cam.y;
+        return {
+          x: W * 0.5 + (rawX - W * 0.5) * z,
+          y: H * 0.5 + (rawY - H * 0.5) * z
+        };
+      };
+      if (typeof ball !== 'undefined' && ball) {
+        points.push(toScreen(ball.x, ball.y));
+      }
+      if (Array.isArray(nodes)) {
+        for (const node of nodes) {
+          if (!node || node.captured || node.visible === false) continue;
+          const p = toScreen(node.x, node.y);
+          if (p.x < -120 || p.x > W + 120 || p.y < -120 || p.y > H + 120) continue;
+          points.push(p);
+        }
+      }
+    } catch(e) {}
+    return points;
+  }
+
+  function _chooseCosmicBlackHoleAnchor(r){
+    const edgeInset = r * 0.20; // 40% do diametro fica fora da tela.
+    const candidates = [
+      { x: edgeInset, y: H * 0.28, side: 'left' },
+      { x: W - edgeInset, y: H * 0.28, side: 'right' },
+      { x: edgeInset, y: H * 0.78, side: 'left' },
+      { x: W - edgeInset, y: H * 0.78, side: 'right' }
+    ];
+    const route = _cosmicRoutePoints();
+    let best = candidates[0];
+    let bestDistance = -1;
+    for (const candidate of candidates) {
+      let nearest = Infinity;
+      for (const p of route) {
+        nearest = Math.min(nearest, Math.hypot(candidate.x - p.x, candidate.y - p.y));
+      }
+      if (nearest > bestDistance) {
+        best = candidate;
+        bestDistance = nearest;
+      }
+    }
+    return { x: best.x, y: best.y, side: best.side, w: W, h: H };
+  }
+
+  function _blackHoleRouteVisibility(cx, cy){
+    const route = _cosmicRoutePoints();
+    let nearest = Infinity;
+    for (const p of route) {
+      nearest = Math.min(nearest, Math.hypot(cx - p.x, cy - p.y));
+    }
+    if (nearest <= 120) return 0.02;
+    if (nearest >= 180) return 1;
+    const p = (nearest - 120) / 60;
+    return p * p * (3 - 2 * p);
+  }
+
+  function _drawCosmicBlackHole(t, alpha){
+    const currentBg = (typeof BACKGROUNDS !== 'undefined' && typeof selectedBg !== 'undefined')
+      ? (BACKGROUNDS[selectedBg] || BACKGROUNDS.space)
+      : null;
+    if (currentBg && currentBg.type === 'blackhole') return;
+
+    const base = Math.min(W, H);
+    const r = Math.max(16, Math.min(24, base * 0.048));
+    if (!_cosmicBlackHoleAnchor || _cosmicBlackHoleAnchor.w !== W || _cosmicBlackHoleAnchor.h !== H) {
+      _cosmicBlackHoleAnchor = _chooseCosmicBlackHoleAnchor(r);
+      _cosmicBlackHoleVisibility = _blackHoleRouteVisibility(
+        _cosmicBlackHoleAnchor.x,
+        _cosmicBlackHoleAnchor.y
+      );
+    }
+    const cx = _cosmicBlackHoleAnchor.x;
+    const cy = _cosmicBlackHoleAnchor.y;
+    const desiredVisibility = _blackHoleRouteVisibility(cx, cy);
+    _cosmicBlackHoleVisibility += (desiredVisibility - _cosmicBlackHoleVisibility) * 0.10;
+    const visualAlpha = alpha * _cosmicBlackHoleVisibility * 0.70;
+    if (visualAlpha < 0.008) return;
+    const tiltBase = _cosmicBlackHoleAnchor.side === 'left' ? -0.24 : 0.24;
+    const tilt = tiltBase + Math.sin(t * 0.18) * 0.025;
+
+    X.save();
+    X.globalAlpha = visualAlpha;
+
+    const halo = X.createRadialGradient(cx, cy, r * 0.4, cx, cy, r * 3.7);
+    halo.addColorStop(0, 'rgba(255,176,72,0.10)');
+    halo.addColorStop(0.42, 'rgba(88,190,255,0.04)');
+    halo.addColorStop(1, 'rgba(0,0,0,0)');
+    X.fillStyle = halo;
+    X.fillRect(cx - r * 3.8, cy - r * 3.8, r * 7.6, r * 7.6);
+
+    // Disco de acrecao distante. As camadas finas mantem o centro da tela
+    // legivel e custam bem menos que distorcao por pixel no celular.
+    for (let i = 5; i >= 0; i--) {
+      X.globalAlpha = visualAlpha * (0.055 + (5 - i) * 0.018);
+      X.strokeStyle = i % 2 === 0 ? '#ffb45d' : '#65cfff';
+      X.lineWidth = 0.9 + (5 - i) * 0.18;
+      X.beginPath();
+      X.ellipse(cx, cy, r * 2.15 + i * 4.0, r * 0.50 + i * 0.95, tilt, 0, Math.PI * 2);
+      X.stroke();
+    }
+
+    for (let i = 0; i < 26; i++) {
+      const a = t * (0.26 + (i % 3) * 0.035) + i * (Math.PI * 2 / 26);
+      const ex = r * (1.65 + (i % 6) * 0.12);
+      const ey = r * (0.34 + (i % 4) * 0.035);
+      const px = cx + Math.cos(a) * ex * Math.cos(tilt) - Math.sin(a) * ey * Math.sin(tilt);
+      const py = cy + Math.cos(a) * ex * Math.sin(tilt) + Math.sin(a) * ey * Math.cos(tilt);
+      X.globalAlpha = visualAlpha * (0.08 + (i % 4) * 0.018);
+      X.fillStyle = i % 3 === 0 ? '#9de7ff' : '#ffd09a';
+      X.beginPath();
+      X.arc(px, py, 0.7 + (i % 3) * 0.18, 0, Math.PI * 2);
+      X.fill();
+    }
+
+    X.globalAlpha = visualAlpha * 0.82;
+    X.fillStyle = '#000004';
+    X.shadowColor = 'rgba(255,160,70,0.24)';
+    X.shadowBlur = 10;
+    X.beginPath();
+    X.arc(cx, cy, r, 0, Math.PI * 2);
+    X.fill();
+    X.shadowBlur = 0;
+
+    X.globalAlpha = visualAlpha * 0.38;
+    X.strokeStyle = '#ffd09a';
+    X.lineWidth = 1.8;
+    X.beginPath();
+    X.arc(cx, cy, r + 3, -Math.PI * 0.82, Math.PI * 0.24);
+    X.stroke();
+    X.restore();
+  }
+
+  function _drawCosmicMeteorShower(t, alpha){
+    const spanX = W + 260;
+    const spanY = H + 260;
+    X.save();
+    X.lineCap = 'round';
+    for (let i = 0; i < _cosmicMeteorSeeds.length; i++) {
+      const m = _cosmicMeteorSeeds[i];
+      const travel = (m.x * spanX + t * m.speed) % spanX;
+      const x = W + 130 - travel;
+      const y = -130 + ((m.y * spanY + travel * m.slope) % spanY);
+      if (x < -100 || x > W + 100 || y < -100 || y > H + 100) continue;
+
+      const tailX = x + m.length;
+      const tailY = y - m.length * m.slope;
+      X.globalAlpha = alpha * m.alpha;
+      X.strokeStyle = m.warm ? '#ffd0a0' : '#b9dcff';
+      X.lineWidth = m.size;
+      X.beginPath();
+      X.moveTo(tailX, tailY);
+      X.lineTo(x, y);
+      X.stroke();
+
+      X.globalAlpha = alpha * Math.min(0.82, m.alpha + 0.22);
+      X.fillStyle = m.warm ? '#fff1d7' : '#eef8ff';
+      X.beginPath();
+      X.arc(x, y, 1.1 + m.size * 0.55, 0, Math.PI * 2);
+      X.fill();
+    }
+    X.restore();
+  }
+
+  function _drawCosmicComet(t, alpha){
+    const cycleDuration = 12;
+    const flightDuration = 3.6;
+    const cycle = (t + 2.1) % cycleDuration;
+    if (cycle > flightDuration) return;
+
+    const p = cycle / flightDuration;
+    const eased = p * p * (3 - 2 * p);
+    const x = -130 + (W + 260) * eased;
+    const y = H * (0.16 + p * 0.17) + Math.sin(p * Math.PI) * 18;
+    const tailLength = Math.max(78, Math.min(150, W * 0.28));
+    const tailX = x - tailLength;
+    const tailY = y - tailLength * 0.22;
+
+    X.save();
+    X.lineCap = 'round';
+    for (let i = 4; i >= 0; i--) {
+      X.globalAlpha = alpha * (0.035 + (4 - i) * 0.035);
+      X.strokeStyle = i % 2 === 0 ? '#80dcff' : '#ffffff';
+      X.lineWidth = 2 + i * 2.1;
+      X.beginPath();
+      X.moveTo(tailX - i * 6, tailY - i * 1.5);
+      X.quadraticCurveTo(x - tailLength * 0.42, y - 18 - i * 2, x, y);
+      X.stroke();
+    }
+
+    const glow = X.createRadialGradient(x, y, 0, x, y, 24);
+    glow.addColorStop(0, 'rgba(255,255,255,0.92)');
+    glow.addColorStop(0.22, 'rgba(105,220,255,0.58)');
+    glow.addColorStop(1, 'rgba(105,220,255,0)');
+    X.globalAlpha = alpha;
+    X.fillStyle = glow;
+    X.beginPath();
+    X.arc(x, y, 24, 0, Math.PI * 2);
+    X.fill();
+    X.fillStyle = '#ffffff';
+    X.beginPath();
+    X.arc(x, y, 2.8, 0, Math.PI * 2);
+    X.fill();
+    X.restore();
+  }
+
+  function _drawCosmicProgression(){
+    try {
+      if (typeof state === 'undefined' || state === ST.MENU) {
+        _cosmicBlackHoleAnchor = null;
+        _cosmicBlackHoleVisibility = 1;
+        return;
+      }
+      const sc = (typeof score === 'number') ? score : 0;
+      if (sc < COSMIC_BLACK_HOLE_SCORE) {
+        _cosmicBlackHoleAnchor = null;
+        _cosmicBlackHoleVisibility = 1;
+      }
+      if (sc < COSMIC_METEOR_SCORE) return;
+      const t = (typeof menuT === 'number') ? menuT : 0;
+
+      if (sc >= COSMIC_BLACK_HOLE_SCORE) {
+        _drawCosmicBlackHole(t, _cosmicFade(sc, COSMIC_BLACK_HOLE_SCORE, 15));
+      }
+      _drawCosmicMeteorShower(t, _cosmicFade(sc, COSMIC_METEOR_SCORE, 12));
+      if (sc >= COSMIC_COMET_SCORE) {
+        _drawCosmicComet(t, _cosmicFade(sc, COSMIC_COMET_SCORE, 10));
+      }
+    } catch(e) {}
+  }
+
+  if (typeof window.drawBackground === 'function') {
+    const _origDrawBackground = window.drawBackground;
+    window.drawBackground = function(){
+      const result = _origDrawBackground.apply(this, arguments);
+      _drawCosmicProgression();
+      return result;
     };
   }
 
@@ -1233,6 +1635,14 @@
       // Reduz raio de orbita dos nos moviles pra nao saltarem da tela.
       cfg.movingRadiusMax = Math.min(cfg.movingRadiusMax, 22);
       cfg.movingRadiusMin = Math.min(cfg.movingRadiusMin, 12);
+      // Durante a rampa inicial, o jogador deve perder por timing, nao por
+      // truque surpresa. O leque completo aparece antes do caos dinamico.
+      if (_isOnboarding()) {
+        cfg.hardMoveChance = 0;
+        cfg.hardDisappearChance = 0;
+        cfg.hardTeleportChance = 0;
+        cfg.mediumMoveChance = 0;
+      }
 
       // Limita o candidato a ficar dentro de um retangulo seguro ao
       // redor do no de origem. Margem de 0.45 do tamanho da tela.
@@ -1271,13 +1681,30 @@
     });
 
     // ---------- Apertar o capture radius do tier "easy" (verde) ----------
-    // Verde original tem captureR=62 - muito generoso. Diminuimos pra
-    // ~46 pra exigir mais precisao mesmo no "facil".
+    // Verde original tem captureR=62. No onboarding mantemos um colchao
+    // extra que some aos poucos; depois estabiliza em ~46.
     registerOrbitaGameplayHook('adjustCaptureRadius', function(payload){
       if (!payload) return payload;
+      const tg = _runIndex();
+      const onboardingCushion = _isOnboarding() ? Math.max(0, ONBOARDING_RUNS - 1 - tg) : 0;
+      const earlyAssistIdx = _earlyRunAssistIndex();
+      const earlyAssistBonus = earlyAssistIdx >= 0
+        ? (EARLY_RUN_ASSIST_RADIUS_BONUS[earlyAssistIdx] || 0)
+        : 0;
+      let value = Number(payload.value);
+      if (!Number.isFinite(value)) return payload;
       if (payload.tier === 'easy') {
-        const tightened = Math.max(38, payload.value - 16);
+        const tightened = Math.max(38, value - 16 + onboardingCushion + earlyAssistBonus);
         return { tier: payload.tier, value: tightened };
+      }
+      if (_isOnboarding()) {
+        const tierCushion = payload.tier === 'medium'
+          ? Math.min(4, onboardingCushion * 0.55)
+          : Math.min(2, onboardingCushion * 0.30);
+        return { tier: payload.tier, value: value + tierCushion };
+      }
+      if (earlyAssistBonus > 0) {
+        return { tier: payload.tier, value: value + earlyAssistBonus };
       }
       return payload;
     });
@@ -1301,42 +1728,71 @@
       const out = [];
       const rand = function(a, b){ return a + Math.random() * (b - a); };
 
-      if (_isOnboarding()) {
-        // Onboarding: phase ramp gradual mas SEM asteroides.
+      if (_shouldUseSafeFirstJump()) {
+        // Primeiro salto: so verde + azul. Sem ouro, sem vermelho e sem
+        // duplicar tier. Depois da 1a captura, o leque normal volta.
+        _earlyGoldSuppressedThisRun = true;
+        _earlyHardSuppressedThisRun = true;
+        out.push(window.placeBranch(fromNode, 'easy',   rand(-0.95, -0.55)));
+        out.push(window.placeBranch(fromNode, 'medium', rand( 0.55,  0.95)));
+      } else if (_isOnboarding()) {
+        // Onboarding: rampa gradual mas SEM asteroides.
         // Replicamos a logica de game.js manualmente aqui pra poder
         // setar handled=true e skipar o bloco de asteroides original.
-        const tg = (typeof totalGames === 'number') ? totalGames : 0;
-        if (tg === 0) {
-          // 1a partida: 2 nos (easy + medium) - bem gentil
+        const tg = _runIndex();
+        if (tg <= 1) {
+          // Runs 1-2: 2 nos. Ensina timing antes de exigir escolha.
           out.push(window.placeBranch(fromNode, 'easy',   rand(-0.9, -0.5)));
           out.push(window.placeBranch(fromNode, 'medium', rand( 0.5,  0.9)));
-        } else if (tg === 1) {
-          // 2a partida: 3 nos (easy + medium + hard)
+        } else if (tg <= 3) {
+          // Runs 3-4: 3 nos fixos, sem gold, pra treinar leitura.
           out.push(window.placeBranch(fromNode, 'easy',   rand(-1.1, -0.6)));
           out.push(window.placeBranch(fromNode, 'medium', rand(-0.25, 0.25)));
           out.push(window.placeBranch(fromNode, 'hard',   rand( 0.6,  1.1)));
-        } else {
-          // 3a partida: 3 nos com possibilidade de gold (sem asteroides)
+        } else if (tg <= 5) {
+          // Runs 5-6: 3 nos com gold ocasional, ainda sem truques dinamicos.
           out.push(window.placeBranch(fromNode, 'easy',   rand(-1.1, -0.6)));
           out.push(window.placeBranch(fromNode, 'hard',   rand( 0.6,  1.1)));
-          if (Math.random() < 0.25) {
+          if (!_shouldSuppressEarlyGold() && Math.random() < 0.25) {
             out.push(window.placeBranch(fromNode, 'gold',   rand(-0.25, 0.25)));
           } else {
+            if (_shouldSuppressEarlyGold()) _earlyGoldSuppressedThisRun = true;
             out.push(window.placeBranch(fromNode, 'medium', rand(-0.25, 0.25)));
           }
+        } else {
+          // Runs 7-8: leque completo, mas ainda sem movimento/sumico.
+          // No primeiro salto, nao substitui gold por azul duplicado:
+          // remove o slot de cima e deixa 3 escolhas claras.
+          out.push(window.placeBranch(fromNode, 'easy',   -1.85 + (Math.random()-0.5)*0.30));
+          out.push(window.placeBranch(fromNode, 'hard',   -0.55 + (Math.random()-0.5)*0.30));
+          if (_shouldSuppressEarlyGold()) {
+            _earlyGoldSuppressedThisRun = true;
+          } else {
+            const goldBranch = window.placeBranch(fromNode, 'gold', 0.08 + (Math.random()-0.5)*0.18);
+            const upBoost = Math.min(90, H * 0.09);
+            const minY = fromNode.y - H * 0.45;
+            goldBranch.y = Math.max(minY, goldBranch.y - upBoost);
+            goldBranch.baseY = goldBranch.y;
+            out.push(goldBranch);
+          }
+          out.push(window.placeBranch(fromNode, 'medium',  1.40 + (Math.random()-0.5)*0.30));
         }
       } else {
         // Pos-onboarding: leque fixo de 4 nos
         out.push(window.placeBranch(fromNode, 'easy',   -1.85 + (Math.random()-0.5)*0.30));  // verde
         out.push(window.placeBranch(fromNode, 'hard',   -0.55 + (Math.random()-0.5)*0.30));  // vermelho
-        // Dourado: angulo quase reto pra cima
-        const goldBranch = window.placeBranch(fromNode, 'gold', 0.08 + (Math.random()-0.5)*0.18);
-        // Boost vertical pra subir mais ainda na tela
-        const upBoost = Math.min(90, H * 0.09);
-        const minY = fromNode.y - H * 0.45;
-        goldBranch.y = Math.max(minY, goldBranch.y - upBoost);
-        goldBranch.baseY = goldBranch.y;
-        out.push(goldBranch);
+        // Dourado: angulo quase reto pra cima. No primeiro salto, remove
+        // esse slot em vez de duplicar azul.
+        if (_shouldSuppressEarlyGold()) {
+          _earlyGoldSuppressedThisRun = true;
+        } else {
+          const goldBranch = window.placeBranch(fromNode, 'gold', 0.08 + (Math.random()-0.5)*0.18);
+          const upBoost = Math.min(90, H * 0.09);
+          const minY = fromNode.y - H * 0.45;
+          goldBranch.y = Math.max(minY, goldBranch.y - upBoost);
+          goldBranch.baseY = goldBranch.y;
+          out.push(goldBranch);
+        }
         out.push(window.placeBranch(fromNode, 'medium',  1.40 + (Math.random()-0.5)*0.30));  // azul
       }
 
@@ -1763,6 +2219,42 @@
     X.fillText(_t('tap_anywhere'), W/2, ctaY + tapSize + 8);
     X.globalAlpha = 1;
 
+    // ---------- Area de teste: sem morte e sem recorde ----------
+    if (_canUseTestArea()) {
+      const testRect = _getTestAreaRect(ctaY, tapSize);
+      const testGrad = X.createLinearGradient(testRect.x, testRect.y, testRect.x + testRect.w, testRect.y);
+      testGrad.addColorStop(0, 'rgba(255,85,119,0.22)');
+      testGrad.addColorStop(0.55, 'rgba(0,245,212,0.16)');
+      testGrad.addColorStop(1, 'rgba(255,211,42,0.18)');
+      X.save();
+      X.globalAlpha = 0.92;
+      X.fillStyle = testGrad;
+      if (typeof roundRect === 'function') {
+        roundRect(testRect.x, testRect.y, testRect.w, testRect.h, 10); X.fill();
+      } else {
+        X.fillRect(testRect.x, testRect.y, testRect.w, testRect.h);
+      }
+      X.strokeStyle = _debugMode ? 'rgba(255,85,119,0.82)' : 'rgba(255,255,255,0.18)';
+      X.lineWidth = 1.2;
+      if (typeof roundRect === 'function') {
+        roundRect(testRect.x, testRect.y, testRect.w, testRect.h, 10); X.stroke();
+      } else {
+        X.strokeRect(testRect.x, testRect.y, testRect.w, testRect.h);
+      }
+      X.textAlign = 'center';
+      X.textBaseline = 'middle';
+      X.fillStyle = '#ffffff';
+      X.shadowColor = '#00f5d4';
+      X.shadowBlur = 8;
+      X.font = 'bold ' + Math.max(12, Math.min(14, W * 0.036)) + 'px -apple-system, system-ui, sans-serif';
+      X.fillText(_t('test_area_btn'), W/2, testRect.y + 15);
+      X.shadowBlur = 0;
+      X.globalAlpha = 0.66;
+      X.font = Math.max(9, Math.min(11, W * 0.03)) + 'px -apple-system, system-ui, sans-serif';
+      X.fillText(_t('test_area_sub'), W/2, testRect.y + 31);
+      X.restore();
+    }
+
     // ---------- Mute btn (canto superior direito) ----------
     X.globalAlpha = 0.55;
     X.fillStyle = '#fff';
@@ -1924,6 +2416,16 @@
           }
         }
       });
+      // Area de teste: inicia uma partida sem morte e sem sessao de ranking.
+      if (_canUseTestArea()) {
+        const testRect = _getTestAreaRect(H * 0.78, tapSize);
+        menuBtnAreas.push({
+          x: testRect.x, y: testRect.y, w: testRect.w, h: testRect.h,
+          action: function(){
+            _startTestAreaRun();
+          }
+        });
+      }
       // Tap-anywhere = play
       menuBtnAreas.push({
         x: 0, y: 50, w: W, h: H - 50,
@@ -2115,8 +2617,10 @@
       X.restore();
     }
 
-    // Hint pequeno nas partidas 2 e 3 (encorajamento sem bloquear visao)
-    if (!_tapHintVisible && _isOnboarding() && typeof totalGames === 'number' && totalGames > 0) {
+    // Hint pequeno nas partidas de treino (encorajamento sem bloquear visao)
+    if (!_tapHintVisible && _isTrainingRecordExemptRun() && typeof totalGames === 'number' && totalGames > 0) {
+      const remaining = Math.max(0, TRAINING_RECORD_EXEMPT_RUNS - totalGames);
+      if (remaining <= 0) return;
       const t = (typeof menuT === 'number') ? menuT : 0;
       const fade = 0.55 + Math.sin(t * 2) * 0.20;
       X.save();
@@ -2125,7 +2629,6 @@
       X.font = 'bold 11px -apple-system, system-ui, sans-serif';
       X.textAlign = 'center';
       X.textBaseline = 'top';
-      const remaining = 3 - totalGames;
       const trainKey = remaining === 1 ? 'training_match_singular' : 'training_match_plural';
       X.fillText(_t(trainKey, { n: remaining }), W/2, topY + scoreSize + 6);
       X.restore();
@@ -2228,6 +2731,7 @@
     const recSize    = Math.max(18, Math.min(24, W * 0.062));
     const medalSize  = Math.max(28, Math.min(38, W * 0.10));
     const labelSize  = Math.max(10, Math.min(12, W * 0.032));
+    const reasonSize = Math.max(12, Math.min(16, W * 0.042));
     const hintSize   = Math.max(13, Math.min(16, W * 0.042));
     const bannerSize = Math.max(16, Math.min(22, W * 0.058));
     const statSize   = Math.max(12, Math.min(14, W * 0.038));
@@ -2241,6 +2745,16 @@
     X.fillText(_t('morreu'), W/2, H*0.13);
     X.shadowBlur = 0;
 
+    // Feedback curto do erro: ajuda o jogador a ajustar o timing.
+    const reasonText = _t(_deathReasonLabelKey(_deathReason));
+    const reasonY = Math.max(H * 0.185, H * 0.13 + titleSize * 0.78);
+    X.fillStyle = _deathReasonColor(_deathReason);
+    X.shadowColor = _deathReasonColor(_deathReason);
+    X.shadowBlur = 10;
+    X.font = 'bold ' + reasonSize + 'px -apple-system, system-ui, sans-serif';
+    X.fillText(reasonText, W/2, reasonY);
+    X.shadowBlur = 0;
+
     // Snapshot dos valores
     const sc = (typeof score==='number') ? score : 0;
     const bs = (typeof best==='number') ? best : 0;
@@ -2252,7 +2766,7 @@
 
     // ---------- CARD GRANDE: PONTOS / RECORDE / MEDAL / PROGRESS BAR ----------
     const cardW = Math.min(W*0.86, 340);
-    const cardYStart = H * 0.19;
+    const cardYStart = H * 0.21;
     const padTop = 18;
     const ptsBlockH = scoreSize * 1.0 + 18;     // label + value
     const recBlockH = recSize * 1.0 + 16;        // label + value
@@ -2359,6 +2873,7 @@
 
     // ---------- BANNER ABAIXO DO CARD ----------
     const bannerY = cardY + cardH + 24;
+    const trainingBanner = _lastRunWasTrainingRecordExempt;
     if (typeof newRec !== 'undefined' && newRec) {
       const pulse = 0.7 + Math.sin((typeof menuT==='number'?menuT:0) * 5) * 0.3;
       X.globalAlpha = f * pulse;
@@ -2369,10 +2884,19 @@
       X.fillText(_t('new_record_banner'), W/2, bannerY);
       X.shadowBlur = 0;
       X.globalAlpha = f;
+    } else if (trainingBanner) {
+      X.globalAlpha = f * 0.92;
+      X.fillStyle = _trainingRecordSuppressed ? '#7bed9f' : 'rgba(123,237,159,0.82)';
+      X.shadowColor = '#00f5a8';
+      X.shadowBlur = _trainingRecordSuppressed ? 12 : 8;
+      X.font = 'bold ' + Math.max(13, Math.min(17, W * 0.044)) + 'px -apple-system, system-ui, sans-serif';
+      X.fillText(_t('training_no_record'), W/2, bannerY);
+      X.shadowBlur = 0;
+      X.globalAlpha = f;
     }
 
     // ---------- STATS ROW (3 mini items) ----------
-    const statsY = bannerY + (newRec ? bannerSize + 18 : 8);
+    const statsY = bannerY + ((newRec || trainingBanner) ? bannerSize + 18 : 8);
     const statSlotW = cardW / 3;
     const nodesKey = captures === 1 ? 'nodes_singular' : 'nodes_plural';
     const statsItems = [
@@ -2405,8 +2929,16 @@
     const phraseY = streakY + (_currentDayStreak >= 2 ? 26 : 0);
     if (_currentDeathPhrase) {
       X.fillStyle = 'rgba(255,255,255,0.55)';
-      X.font = 'italic ' + phraseSize + 'px -apple-system, system-ui, sans-serif';
-      X.fillText('"' + _currentDeathPhrase + '"', W/2, phraseY);
+      const phraseText = '"' + _currentDeathPhrase + '"';
+      const maxPhraseWidth = Math.max(180, W - 44);
+      let fittedPhraseSize = phraseSize;
+      X.font = 'italic ' + fittedPhraseSize + 'px -apple-system, system-ui, sans-serif';
+      const measuredPhraseWidth = X.measureText(phraseText).width;
+      if (measuredPhraseWidth > maxPhraseWidth) {
+        fittedPhraseSize = Math.max(10, Math.floor(fittedPhraseSize * maxPhraseWidth / measuredPhraseWidth));
+        X.font = 'italic ' + fittedPhraseSize + 'px -apple-system, system-ui, sans-serif';
+      }
+      X.fillText(phraseText, W/2, phraseY, maxPhraseWidth);
     }
 
     // Hint reiniciar - sempre encostado no rodape com margem
@@ -2523,6 +3055,8 @@
       // Calcula near-miss ANTES de morrer (state ainda eh PLAY)
       try {
         _nearMissData = null;
+        _deathReason = 'missed_timing';
+        _deathReasonMeta = null;
         if (Array.isArray(nodes) && typeof ball !== 'undefined' && ball) {
           let closestD = Infinity;
           let closest = null;
@@ -2533,8 +3067,10 @@
           }
           if (closest) {
             const cr = closest.captureR || 50;
-            const overshoot = closestD - cr;
-            if (overshoot >= 0 && overshoot < cr * NEAR_MISS_MAX_OVERSHOOT) {
+            const classified = _classifyDeathReason(closest, closestD, cr);
+            _deathReason = classified.reason;
+            _deathReasonMeta = classified.meta;
+            if (_deathReason === 'near_miss') {
               _nearMissData = {
                 nodeX: closest.x,
                 nodeY: closest.y,
@@ -2545,11 +3081,53 @@
                 distance: closestD
               };
             }
+          } else {
+            const classified = _classifyDeathReason(null, Infinity, 0);
+            _deathReason = classified.reason;
+            _deathReasonMeta = classified.meta;
+          }
+        }
+      } catch(e) {}
+
+      // As 3 primeiras runs sao treino: ensinam o gesto, mas nao podem
+      // gravar recorde. O score real volta logo apos o die() base para UI.
+      let trainingSnapshot = null;
+      try {
+        _lastRunWasTrainingRecordExempt = _isTrainingRecordExemptRun();
+        _trainingRecordSuppressed = false;
+        if (_lastRunWasTrainingRecordExempt) {
+          const actualScore = (typeof score === 'number' && Number.isFinite(score)) ? score : 0;
+          const prevBest = (typeof best === 'number' && Number.isFinite(best)) ? best : 0;
+          trainingSnapshot = {
+            score: actualScore,
+            best: prevBest,
+            newRec: (typeof newRec !== 'undefined') ? !!newRec : false,
+            totalScoreEver: (typeof totalScoreEver === 'number') ? totalScoreEver : null,
+            highestPhase: (typeof highestPhase === 'number') ? highestPhase : null
+          };
+          if (actualScore > prevBest) {
+            _trainingRecordSuppressed = true;
+            score = prevBest;
           }
         }
       } catch(e) {}
 
       const r = _origDie.apply(this, arguments);
+
+      try {
+        if (trainingSnapshot) {
+          if (typeof score === 'number') score = trainingSnapshot.score;
+          if (typeof best === 'number') best = trainingSnapshot.best;
+          if (typeof newRec !== 'undefined') newRec = false;
+          if (_trainingRecordSuppressed && trainingSnapshot.totalScoreEver !== null && typeof totalScoreEver === 'number') {
+            totalScoreEver = trainingSnapshot.totalScoreEver;
+          }
+          if (_trainingRecordSuppressed && trainingSnapshot.highestPhase !== null && typeof highestPhase === 'number') {
+            highestPhase = trainingSnapshot.highestPhase;
+          }
+          if (typeof saveData === 'function') saveData();
+        }
+      } catch(e) {}
 
       // Punicao mais sharp: shake/flash extra, vibracao mais agressiva
       try {
@@ -2574,7 +3152,9 @@
       // ---------- Snapshot pra tela de morte ----------
       try {
         const nowT = (typeof performance !== 'undefined') ? performance.now() : Date.now();
-        _runDurationS = _runStartT ? Math.max(0, Math.round((nowT - _runStartT) / 100) / 10) : 0;
+        _runDurationRawS = _runStartT ? Math.max(0, Math.round((nowT - _runStartT) / 100) / 10) : 0;
+        _runDurationWasCapped = _runDurationRawS > RUN_DURATION_TELEMETRY_CAP_S;
+        _runDurationS = _runDurationWasCapped ? RUN_DURATION_TELEMETRY_CAP_S : _runDurationRawS;
         _runMaxCombo = (typeof maxCombo === 'number') ? maxCombo : 0;
         _currentDeathPhrase = _pickContextualPhrase();
         try {
@@ -2585,9 +3165,13 @@
           best: typeof best === 'number' ? best : 0,
           newRec: typeof newRec !== 'undefined' && !!newRec,
           duration: _runDurationS,
+          durationRaw: _runDurationRawS,
+          durationCapped: _runDurationWasCapped,
           captures: _captureCount,
+          releases: _releaseCount,
           maxCombo: _runMaxCombo,
-          nearMiss: !!_nearMissData
+          nearMiss: !!_nearMissData,
+          deathReason: _deathReason
         });
       } catch(e) {}
 
@@ -2600,10 +3184,23 @@
             best: typeof best === 'number' ? best : 0,
             new_record: typeof newRec !== 'undefined' && !!newRec,
             duration_s: _runDurationS,
+            duration_raw_s: _runDurationWasCapped ? _runDurationRawS : null,
+            duration_capped: _runDurationWasCapped,
             captures: _captureCount,
+            releases: _releaseCount,
             max_combo: _runMaxCombo,
+            death_reason: _deathReason,
+            death_reason_meta: _deathReasonMeta,
             had_near_miss: !!_nearMissData,
             near_miss_tier: _nearMissData ? _nearMissData.tier : null,
+            training_run: !!_lastRunWasTrainingRecordExempt,
+            record_eligible: !_lastRunWasTrainingRecordExempt,
+            onboarding_run_index: _runIndex(),
+            onboarding_total_runs: ONBOARDING_RUNS,
+            early_run_assist: _earlyRunAssistMeta(),
+            early_gold_suppressed: _earlyGoldSuppressedThisRun,
+            early_hard_suppressed: _earlyHardSuppressedThisRun,
+            phase: (typeof getPhase === 'function') ? getPhase() : null,
             cheat_flagged: _cheatFlagged,
             // Bot detection (server-side rejeita score se score >= 4)
             bot_score: _botSignals.score,
@@ -2701,13 +3298,33 @@
   if (typeof window.startRun === 'function') {
     const _origStartRun = window.startRun;
     window.startRun = function(useZen, source, opts){
+      let willUseTestMode = !!(opts && typeof opts === 'object' && opts.testMode);
+      if (_debugMode && !useZen) willUseTestMode = true;
+      if (willUseTestMode) {
+        if (!_testProgressSnapshot) _testProgressSnapshot = _captureTestProgressSnapshot();
+      } else {
+        _restoreTestProgressSnapshot(true);
+        _testProgressSnapshot = null;
+      }
       _nearMissData = null;
+      _deathReason = 'unknown';
+      _deathReasonMeta = null;
+      _lastReleaseSnapshot = null;
       _captureFlashT = 0;
       _lastBonusType = null;
       _runStartT = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+      _runDurationS = 0;
+      _runDurationRawS = 0;
+      _runDurationWasCapped = false;
       _captureCount = 0;
+      _releaseCount = 0;
       _expectedScore = 0;       // anti-cheat reset
       _cheatFlagged = false;
+      _lastRunWasTrainingRecordExempt = false;
+      _trainingRecordSuppressed = false;
+      _runStartedInOnboarding = !useZen && !willUseTestMode && _runIndex() < ONBOARDING_RUNS;
+      _earlyGoldSuppressedThisRun = false;
+      _earlyHardSuppressedThisRun = false;
       _hasReleasedThisRun = false;
       // Hint visual de tap aparece apenas na 1a partida ever
       _tapHintVisible = (typeof totalGames === 'number' && totalGames === 0 && !useZen);
@@ -2733,6 +3350,11 @@
     window.release = function(){
       _tapHintVisible = false;
       _hasReleasedThisRun = true;
+      const wasOrbiting = (typeof ball !== 'undefined' && ball && !!ball.orbiting);
+      if (wasOrbiting) {
+        _lastReleaseSnapshot = _captureReleaseSnapshot();
+        _releaseCount++;
+      }
       return _origRelease.apply(this, arguments);
     };
   }
@@ -2743,6 +3365,10 @@
   if (typeof window.capture === 'function') {
     const _capForCount = window.capture;
     window.capture = function(){
+      const wasTestMode = (typeof testMode !== 'undefined' && testMode);
+      if (wasTestMode && !_testProgressSnapshot) {
+        _testProgressSnapshot = _captureTestProgressSnapshot();
+      }
       const beforeScore = (typeof score === 'number') ? score : 0;
       _captureCount++;
       const r = _capForCount.apply(this, arguments);
@@ -2750,6 +3376,13 @@
       const legitGain = afterScore - beforeScore;
       if (legitGain > 0 && legitGain < 1000) {
         _expectedScore += legitGain;
+      }
+      if (wasTestMode) {
+        _restoreTestProgressSnapshot(true);
+        try {
+          if (typeof pendingUnlocks !== 'undefined') pendingUnlocks = [];
+          if (typeof pendingAchievements !== 'undefined') pendingAchievements = [];
+        } catch(e) {}
       }
       return r;
     };

@@ -17,40 +17,53 @@ window.addEventListener('resize', resize);
 // de tamanho (ex: barra de URL aparece/some). Isso deixava o canvas preso no
 // tamanho antigo (UI no canto, resto preto). Forca resize ao voltar.
 // Tambem suspende o AudioContext pra musica nao continuar tocando minimizado.
-// ============ HANDLERS DE BACKGROUND (NUCLEAR: destroi tudo) ============
-// Quando minimiza, fecha o AudioContext inteiro (actx.close()). Mata
-// oscillators, gains, scheduling, libera memoria. Audio system OFF total.
-// Quando volta, _ensureAudio (listener global) re-cria tudo do zero ao
-// proximo tap/click. Nao tem como vazar audio porque o sistema nao existe.
+// ============ HANDLERS DE BACKGROUND ============
+// Suspende o AudioContext ao minimizar, preservando o grafo de audio.
+// Ao voltar, retoma o contexto e reinicia o scheduler dos acordes.
 
 function _muteForBackground() {
-  if (!actx) return;
+  if (!actx || actx.state === 'closed') return;
+  _audioNeedsMusicRestart = !!musicStarted;
   try {
     if (typeof window._killAllMusicNodes === 'function') window._killAllMusicNodes();
   } catch(e) {}
-  try { actx.close(); } catch(e) {}
-  // Reseta TODAS as referencias pra forcar reinit no proximo tap
-  actx = null;
-  musicStarted = false;
-  musicGain = null;
-  musicDuckGain = null;
-  musicMasterGain = null;
-  musicCompressor = null;
-  sfxGain = null;
-  sfxCompressor = null;
-  sfxOutputGain = null;
-  masterLimiter = null;
+  try {
+    const pending = actx.suspend();
+    if (pending && typeof pending.catch === 'function') pending.catch(()=>{});
+  } catch(e) {}
+}
+
+function _finishAudioResume(forceMusicRestart) {
+  if (!actx || actx.state !== 'running') return;
+  if (typeof document !== 'undefined' && document.hidden) {
+    _audioNeedsMusicRestart = true;
+    return;
+  }
+  const shouldRestart = !!forceMusicRestart || _audioNeedsMusicRestart;
+  _audioNeedsMusicRestart = false;
+  try {
+    if (shouldRestart && musicStarted && typeof window._restartMusicScheduler === 'function') {
+      window._restartMusicScheduler();
+    }
+  } catch(e) {}
+  try { refreshMusicGain(0.08); } catch(e) {}
 }
 
 function _unmuteFromBackground() {
-  // Nada a fazer aqui — _ensureAudio (listener global em core.js) detecta
-  // o proximo tap/click/keydown e chama initAudio() que recria tudo.
-  // Pra acelerar caso o user demore a tocar, dispara init no proximo frame.
-  // (Browsers permitem AudioContext criado fora de gesture se ja teve gesture
-  //  na pagina nessa sessao.)
-  setTimeout(() => {
-    try { if (!actx && typeof initAudio === 'function') initAudio(); } catch(e) {}
-  }, 100);
+  // O resume pode funcionar imediatamente ou ficar aguardando o proximo gesto.
+  // initAudio() tambem finaliza a retomada quando um toque for necessario.
+  if (!actx || actx.state === 'closed') return;
+  if (typeof document !== 'undefined' && document.hidden) return;
+  try {
+    if (actx.state === 'running') {
+      _finishAudioResume(false);
+      return;
+    }
+    const pending = actx.resume();
+    if (pending && typeof pending.then === 'function') {
+      pending.then(() => _finishAudioResume(false)).catch(()=>{});
+    }
+  } catch(e) {}
 }
 
 document.addEventListener('visibilitychange', () => {
@@ -103,6 +116,7 @@ let sfxOutputGain = null;
 let masterLimiter = null;  // brick-wall limiter no destination final pra evitar clipping
 let musicStarted = false;
 let musicNodes = [];
+let _audioNeedsMusicRestart = false;
 
 function getCurrentMusicUserVolume() {
   const isGameplayContext = state === ST.PLAY || state === ST.PAUSE;
@@ -213,6 +227,7 @@ function initSfxBus() {
 }
 
 function initAudio() {
+  let createdAudioGraph = false;
   if (!actx) {
     // latencyHint:'playback' usa buffers maiores -> menos CPU -> menos crackle em cel
     try {
@@ -223,9 +238,15 @@ function initAudio() {
     initMasterLimiter();  // CRITICO: tem que vir antes de music/sfx pra audioOut() funcionar
     initMusic();
     initSfxBus();
+    createdAudioGraph = true;
   }
   if (actx && actx.state === 'suspended') {
-    actx.resume().catch(()=>{});
+    const pending = actx.resume();
+    if (pending && typeof pending.then === 'function') {
+      pending.then(() => _finishAudioResume(createdAudioGraph)).catch(()=>{});
+    }
+  } else if (actx && actx.state === 'running' && _audioNeedsMusicRestart) {
+    _finishAudioResume(false);
   }
 }
 

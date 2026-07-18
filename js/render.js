@@ -1017,11 +1017,13 @@ function draw(){
 
   // Score popups
   for(const p of scorePopups){
-    X.globalAlpha=Math.min(p.life*2,1);
+    X.globalAlpha=Math.min(p.life*(p.fadeRate||2),p.maxAlpha||1);
     X.fillStyle=p.color;
-    X.font='bold 22px -apple-system, system-ui, sans-serif';
+    if(p.shadowColor){X.shadowColor=p.shadowColor;X.shadowBlur=p.shadowBlur||0;}
+    X.font='bold '+(p.fontSize||22)+'px -apple-system, system-ui, sans-serif';
     X.textAlign='center';X.textBaseline='middle';
     X.fillText(p.text,p.x-cam.x,p.y-cam.y);
+    X.shadowBlur=0;
   }
   X.globalAlpha=1;
 

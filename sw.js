@@ -1,4 +1,4 @@
-const CACHE_NAME = 'orbita-pwa-v126';
+const CACHE_NAME = 'orbita-pwa-v141';
 const SUPABASE_SDK_URL = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0/dist/umd/supabase.min.js';
 const SENTRY_SDK_URL = 'https://browser.sentry-cdn.com/7.119.2/bundle.min.js';
 const APP_SHELL = [
